@@ -1,0 +1,11 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.dependencies]
+napi = { version = "3.12.0", default-features = false, features = ["napi4"] }
+napi-build = { version = "2.4.0" }
+napi-derive = { version = "3.6.2" }
+
+oxc = {version = "^0.143.0",features=["semantic"]}
+browserslist-rs ={ version ="0.20.0" }

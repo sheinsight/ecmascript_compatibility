@@ -1,0 +1,15 @@
+{
+	"name": "@shined/ecmascript_compatibility-monorepo",
+	"version": "0.0.0",
+	"main": "index.js",
+	"types": "index.d.ts",
+	"private": true,
+	"repository": {
+		"url": "https://github.com/sheinsight/ecmascript_compatibility"
+	},
+	"files": ["index.js", "index.d.ts"],
+	"license": "MIT",
+	"packageManager": "pnpm@12.0.0-beta.4",
+	"scripts": {
+	}
+}
