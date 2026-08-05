@@ -5,6 +5,10 @@ use oxc::{
   span::SourceType,
 };
 
+mod error;
+mod feature;
+mod target;
+
 #[derive(Debug, Clone)]
 pub struct CompatibilityOptions {
   queries: Vec<String>,

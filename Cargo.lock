@@ -149,6 +149,7 @@ version = "0.1.0"
 dependencies = [
  "browserslist-rs",
  "oxc",
+ "thiserror 2.0.19",
 ]
 
 [[package]]

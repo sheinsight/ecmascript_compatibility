@@ -9,3 +9,5 @@ napi-derive = { version = "3.6.2" }
 
 oxc = {version = "^0.143.0",features=["semantic"]}
 browserslist-rs ={ version ="0.20.0" }
+
+thiserror = { version = "2.0.19" }

@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 oxc = {workspace = true}
 browserslist-rs={workspace = true}
+thiserror={workspace = true}
