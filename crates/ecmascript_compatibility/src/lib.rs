@@ -7,7 +7,11 @@ use oxc::{
 
 mod error;
 mod feature;
+mod source;
 mod target;
+
+pub use error::SourceKindError;
+pub use source::{SourceFile, SourceKind};
 
 #[derive(Debug, Clone)]
 pub struct CompatibilityOptions {
