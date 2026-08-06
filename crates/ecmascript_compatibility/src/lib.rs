@@ -11,6 +11,7 @@ mod detector;
 mod error;
 mod feature;
 mod source;
+mod source_map;
 mod target;
 
 pub use error::SourceKindError;

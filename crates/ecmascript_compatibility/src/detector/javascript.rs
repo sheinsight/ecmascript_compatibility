@@ -74,7 +74,7 @@ impl<'a> Visit<'a> for FeatureVisitor {
 mod tests {
   use std::path::PathBuf;
 
-  use crate::source::SourceKind;
+  use crate::{source::SourceKind, source_map::SourceMapping};
 
   use super::*;
 
@@ -109,6 +109,20 @@ mod tests {
     assert_eq!(
       &source_text[span.start() as usize..span.end() as usize],
       "user?.profile?.name",
+    );
+  }
+
+  #[test]
+  fn marks_detected_usages_as_not_resolved_before_source_map_mapping() {
+    let source =
+      SourceFile::javascript("input.js", "const value = user?.name;");
+
+    let result = FeatureDetector::new().detect(&source).unwrap();
+
+    assert_eq!(result.usages().len(), 1);
+    assert_eq!(
+      result.usages()[0].source_mapping(),
+      &SourceMapping::NotResolved,
     );
   }
 

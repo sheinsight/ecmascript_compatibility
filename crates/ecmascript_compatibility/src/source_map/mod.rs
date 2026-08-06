@@ -1,0 +1,10 @@
+mod loader;
+mod resolver;
+mod source_identity;
+mod source_location;
+mod source_map_discovery_kind;
+mod source_map_reference;
+mod source_mapping;
+mod source_position;
+
+pub use source_mapping::SourceMapping;
