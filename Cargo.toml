@@ -9,5 +9,7 @@ napi-derive = { version = "3.6.2" }
 
 oxc = {version = "^0.143.0",features=["semantic"]}
 browserslist-rs ={ version ="0.20.0" }
+serde_json = { version = "1.0.145" }
+sourcemap = { version = "9.3.2", default-features = false }
 
 thiserror = { version = "2.0.19" }

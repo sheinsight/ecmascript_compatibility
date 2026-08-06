@@ -1,3 +1,4 @@
+mod document;
 mod loader;
 mod resolver;
 mod source_identity;
@@ -7,4 +8,5 @@ mod source_map_reference;
 mod source_mapping;
 mod source_position;
 
+pub use document::{SourceMapDocument, SourceMapDocumentParseError};
 pub use source_mapping::SourceMapping;

@@ -1,30 +1,31 @@
 use super::{
+  document::{SourceMapDocument, SourceMapDocumentParseError},
   loader::{SourceMapLoadError, SourceMapLoader},
   source_map_discovery_kind::SourceMapDiscoveryKind,
   source_map_reference::SourceMapReference,
 };
 
-/// 已完成发现和加载的 Source Map 文档。
+/// 已完成发现、加载和解析的 Source Map 文档。
 ///
-/// 这个类型仍然只表示“找到了并读到了 map 字节”。解码 v3 文档和查询 mappings
-/// 属于后续 decoder 阶段。
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// resolver 的产物不是裸字节，而是后续可以直接执行 generated -> original
+/// 查询的文档对象。这样 detector/mapper 不需要知道 Source Map 从哪里加载而来。
+#[derive(Debug, Clone)]
 pub struct ResolvedSourceMap {
   discovery_kind: SourceMapDiscoveryKind,
   reference: SourceMapReference,
-  bytes: Vec<u8>,
+  document: SourceMapDocument,
 }
 
 impl ResolvedSourceMap {
   pub fn new(
     discovery_kind: SourceMapDiscoveryKind,
     reference: SourceMapReference,
-    bytes: Vec<u8>,
+    document: SourceMapDocument,
   ) -> Self {
     Self {
       discovery_kind,
       reference,
-      bytes,
+      document,
     }
   }
 
@@ -36,8 +37,30 @@ impl ResolvedSourceMap {
     &self.reference
   }
 
-  pub fn bytes(&self) -> &[u8] {
-    &self.bytes
+  pub const fn document(&self) -> &SourceMapDocument {
+    &self.document
+  }
+}
+
+/// Source Map 解析编排失败原因。
+///
+/// 加载失败和文档解析失败属于不同阶段：前者说明引用不可读取，后者说明读取到的
+/// 字节不是当前支持的 Source Map 文档。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceMapResolveError {
+  Load(SourceMapLoadError),
+  Parse(SourceMapDocumentParseError),
+}
+
+impl From<SourceMapLoadError> for SourceMapResolveError {
+  fn from(error: SourceMapLoadError) -> Self {
+    Self::Load(error)
+  }
+}
+
+impl From<SourceMapDocumentParseError> for SourceMapResolveError {
+  fn from(error: SourceMapDocumentParseError) -> Self {
+    Self::Parse(error)
   }
 }
 
@@ -58,19 +81,23 @@ impl SourceMapResolver {
     discovery_kind: SourceMapDiscoveryKind,
     reference: SourceMapReference,
     loader: &L,
-  ) -> Result<ResolvedSourceMap, SourceMapLoadError>
+  ) -> Result<ResolvedSourceMap, SourceMapResolveError>
   where
     L: SourceMapLoader,
   {
     let bytes = loader.load(&reference)?;
+    let document = SourceMapDocument::parse(&bytes)?;
 
-    Ok(ResolvedSourceMap::new(discovery_kind, reference, bytes))
+    Ok(ResolvedSourceMap::new(discovery_kind, reference, document))
   }
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::source_map::{
+    source_identity::SourceIdentity, source_position::SourcePosition,
+  };
 
   struct StaticLoader;
 
@@ -79,12 +106,36 @@ mod tests {
       &self,
       _reference: &SourceMapReference,
     ) -> Result<Vec<u8>, SourceMapLoadError> {
-      Ok(br#"{"version":3}"#.to_vec())
+      Ok(valid_source_map().to_vec())
+    }
+  }
+
+  struct FailingLoader;
+
+  impl SourceMapLoader for FailingLoader {
+    fn load(
+      &self,
+      _reference: &SourceMapReference,
+    ) -> Result<Vec<u8>, SourceMapLoadError> {
+      Err(SourceMapLoadError::UnsupportedRemoteUrl(
+        "https://example.com/app.js.map".to_string(),
+      ))
+    }
+  }
+
+  struct InvalidDocumentLoader;
+
+  impl SourceMapLoader for InvalidDocumentLoader {
+    fn load(
+      &self,
+      _reference: &SourceMapReference,
+    ) -> Result<Vec<u8>, SourceMapLoadError> {
+      Ok(br#"{"version":2,"sources":[],"names":[],"mappings":""}"#.to_vec())
     }
   }
 
   #[test]
-  fn load_reference_preserves_discovery_kind_reference_and_bytes() {
+  fn load_reference_preserves_discovery_kind_reference_and_document() {
     let reference = SourceMapReference::local_file("dist/main.js.map");
 
     let resolved = SourceMapResolver::new()
@@ -100,6 +151,56 @@ mod tests {
       SourceMapDiscoveryKind::AdjacentFallback,
     );
     assert_eq!(resolved.reference(), &reference);
-    assert_eq!(resolved.bytes(), br#"{"version":3}"#);
+
+    let location = resolved
+      .document()
+      .lookup(SourcePosition::new(0, 0))
+      .expect("generated location should be mapped");
+
+    assert_eq!(location.source(), &SourceIdentity::file("src/index.ts"));
+    assert_eq!(location.start(), SourcePosition::new(0, 0));
+  }
+
+  #[test]
+  fn load_reference_reports_loader_failures() {
+    let result = SourceMapResolver::new().load_reference(
+      SourceMapDiscoveryKind::Explicit,
+      SourceMapReference::remote_url("https://example.com/app.js.map")
+        .expect("remote url should be accepted"),
+      &FailingLoader,
+    );
+
+    assert_eq!(
+      result.unwrap_err(),
+      SourceMapResolveError::Load(SourceMapLoadError::UnsupportedRemoteUrl(
+        "https://example.com/app.js.map".to_string(),
+      )),
+    );
+  }
+
+  #[test]
+  fn load_reference_reports_parse_failures() {
+    let result = SourceMapResolver::new().load_reference(
+      SourceMapDiscoveryKind::Explicit,
+      SourceMapReference::local_file("dist/main.js.map"),
+      &InvalidDocumentLoader,
+    );
+
+    assert!(matches!(
+      result,
+      Err(SourceMapResolveError::Parse(
+        SourceMapDocumentParseError::UnsupportedVersion(2),
+      )),
+    ));
+  }
+
+  fn valid_source_map() -> &'static [u8] {
+    br#"{
+      "version":3,
+      "sources":["src/index.ts"],
+      "sourcesContent":["const value = 1;"],
+      "names":[],
+      "mappings":"AAAA"
+    }"#
   }
 }
