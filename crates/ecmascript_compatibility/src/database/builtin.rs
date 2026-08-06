@@ -6,9 +6,9 @@ use crate::{
 use super::SupportRule;
 
 #[derive(Debug, Default, Clone, Copy)]
-pub struct CompatibilityDatabase;
+pub struct CompatDatabase;
 
-impl CompatibilityDatabase {
+impl CompatDatabase {
   pub const fn new() -> Self {
     Self
   }
@@ -44,7 +44,7 @@ mod tests {
 
   #[test]
   fn returns_explicit_optional_chaining_support_boundaries() {
-    let database = CompatibilityDatabase::new();
+    let database = CompatDatabase::new();
 
     let cases = [
       (Runtime::Chrome, SupportRule::Since(Version::from_major(80))),
@@ -69,7 +69,7 @@ mod tests {
 
   #[test]
   fn returns_unknown_for_unresolved_mirror_data() {
-    let database = CompatibilityDatabase::new();
+    let database = CompatDatabase::new();
 
     assert_eq!(
       database.support_rule(FeatureId::OptionalChaining, Runtime::Edge),

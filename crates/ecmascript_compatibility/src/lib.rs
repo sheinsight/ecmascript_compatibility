@@ -5,6 +5,7 @@ use oxc::{
   span::SourceType,
 };
 
+mod checker;
 mod database;
 mod error;
 mod feature;
