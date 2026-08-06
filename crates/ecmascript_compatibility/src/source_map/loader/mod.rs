@@ -1,6 +1,14 @@
-use std::path::PathBuf;
+mod data_uri;
+mod default;
+mod error;
+mod file;
 
 use super::source_map_reference::SourceMapReference;
+
+pub use data_uri::DataUriSourceMapLoader;
+pub use default::DefaultSourceMapLoader;
+pub use error::SourceMapLoadError;
+pub use file::FileSourceMapLoader;
 
 /// Source Map 文档加载边界。
 ///
@@ -13,17 +21,15 @@ pub trait SourceMapLoader {
   ) -> Result<Vec<u8>, SourceMapLoadError>;
 }
 
-/// Source Map 引用加载失败原因。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SourceMapLoadError {
-  /// 本地 Source Map 文件不存在。
-  NotFound(PathBuf),
-  /// 默认策略禁止远程 Source Map 加载。
-  UnsupportedRemoteUrl(String),
-  /// `data:` 引用格式不合法或无法解码。
-  InvalidDataUri(String),
-  /// 底层 I/O 失败。
-  Io { path: PathBuf, message: String },
+impl SourceMapReference {
+  /// 返回引用类型的人类可读名称，用于构造 loader 边界上的错误信息。
+  pub(crate) fn kind(&self) -> &'static str {
+    match self {
+      Self::InlineData(_) => "inline data URI",
+      Self::LocalFile(_) => "local file",
+      Self::RemoteUrl(_) => "remote URL",
+    }
+  }
 }
 
 #[cfg(test)]
@@ -57,6 +63,29 @@ mod tests {
       Err(SourceMapLoadError::UnsupportedRemoteUrl(
         "https://example.com/a.map".to_string(),
       )),
+    );
+  }
+
+  #[test]
+  fn specific_loaders_reject_unsupported_reference_kinds() {
+    let data_uri =
+      SourceMapReference::inline_data("data:application/json,%7B%7D")
+        .expect("data URI should be accepted");
+    let local_file = SourceMapReference::local_file("dist/main.js.map");
+
+    assert_eq!(
+      FileSourceMapLoader.load(&data_uri),
+      Err(SourceMapLoadError::UnsupportedReferenceKind {
+        expected: "local file",
+        actual: "inline data URI",
+      }),
+    );
+    assert_eq!(
+      DataUriSourceMapLoader.load(&local_file),
+      Err(SourceMapLoadError::UnsupportedReferenceKind {
+        expected: "inline data URI",
+        actual: "local file",
+      }),
     );
   }
 }
