@@ -18,6 +18,15 @@ pub enum SourceKindError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum FeatureDetectionError {
+  #[error("failed to parse source file `{path}`: {diagnostics:?}")]
+  Parse {
+    path: PathBuf,
+    diagnostics: Vec<String>,
+  },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum VersionParseError {
   #[error("version cannot be empty")]
   Empty,

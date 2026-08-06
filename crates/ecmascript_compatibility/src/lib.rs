@@ -7,6 +7,7 @@ use oxc::{
 
 mod checker;
 mod database;
+mod detector;
 mod error;
 mod feature;
 mod source;
