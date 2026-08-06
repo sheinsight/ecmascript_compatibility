@@ -11,6 +11,8 @@ use crate::{
   source::SourceFile,
 };
 
+use super::DetectionResult;
+
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FeatureDetector;
 
@@ -22,7 +24,7 @@ impl FeatureDetector {
   pub fn detect(
     &self,
     source: &SourceFile,
-  ) -> Result<Vec<FeatureUsage>, FeatureDetectionError> {
+  ) -> Result<DetectionResult, FeatureDetectionError> {
     let allocator = Allocator::default();
     let parsed = Parser::new(
       &allocator,
@@ -45,7 +47,10 @@ impl FeatureDetector {
     let mut visitor = FeatureVisitor::default();
     visitor.visit_program(&parsed.program);
 
-    Ok(visitor.usages)
+    Ok(DetectionResult::new(
+      source.path().to_path_buf(),
+      visitor.usages,
+    ))
   }
 }
 
@@ -80,11 +85,13 @@ mod tests {
       "object?.property; object?.[key]; callback?.(); object?.method?.();",
     );
 
-    let usages = FeatureDetector::new().detect(&source).unwrap();
+    let result = FeatureDetector::new().detect(&source).unwrap();
 
-    assert_eq!(usages.len(), 4);
+    assert_eq!(result.path(), source.path());
+    assert_eq!(result.usages().len(), 4);
     assert!(
-      usages
+      result
+        .usages()
         .iter()
         .all(|usage| usage.feature() == FeatureId::OptionalChaining),
     );
@@ -95,10 +102,10 @@ mod tests {
     let source_text = "const name = user?.profile?.name;";
     let source = SourceFile::javascript("input.js", source_text);
 
-    let usages = FeatureDetector::new().detect(&source).unwrap();
+    let result = FeatureDetector::new().detect(&source).unwrap();
 
-    assert_eq!(usages.len(), 1);
-    let span = usages[0].span();
+    assert_eq!(result.usages().len(), 1);
+    let span = result.usages()[0].span();
     assert_eq!(
       &source_text[span.start() as usize..span.end() as usize],
       "user?.profile?.name",
@@ -112,9 +119,9 @@ mod tests {
       "object.property; object[key]; callback(); object.method();",
     );
 
-    let usages = FeatureDetector::new().detect(&source).unwrap();
+    let result = FeatureDetector::new().detect(&source).unwrap();
 
-    assert!(usages.is_empty());
+    assert!(result.usages().is_empty());
   }
 
   #[test]
@@ -130,8 +137,18 @@ mod tests {
       "const view = <span>{object?.property}</span>;",
     );
 
-    assert_eq!(FeatureDetector::new().detect(&typescript).unwrap().len(), 1,);
-    assert_eq!(FeatureDetector::new().detect(&jsx).unwrap().len(), 1);
+    assert_eq!(
+      FeatureDetector::new()
+        .detect(&typescript)
+        .unwrap()
+        .usages()
+        .len(),
+      1,
+    );
+    assert_eq!(
+      FeatureDetector::new().detect(&jsx).unwrap().usages().len(),
+      1,
+    );
   }
 
   #[test]
