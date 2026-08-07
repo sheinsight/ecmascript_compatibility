@@ -1,21 +1,21 @@
 use std::path::{Path, PathBuf};
 
 use crate::{
-  CompatStatus, FeatureId, SourceSpan,
+  CompatStatus, SourceSpan, SyntaxFeatureId,
   source_map::{SourceMapping, SourcePosition},
   target::RuntimeTarget,
 };
 
-/// 单个特性使用位置上的兼容性诊断。
+/// 单个语法特性使用位置上的兼容性诊断。
 ///
-/// 一条 diagnostic 以 detector 发现的 usage 为中心，聚合这个 usage 在多个
+/// 一条 diagnostic 以 syntax detector 发现的 usage 为中心，聚合这个 usage 在多个
 /// target 上的非 Supported 状态。这样报告表达的是“这个源码位置有问题”，而不是
 /// “这个源码位置和每个 target 的笛卡尔积”。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompatDiagnostic {
-  /// detector 识别出的 ECMAScript 特性。
-  feature: FeatureId,
-  /// detector 实际分析的文件路径，通常是构建产物文件。
+  /// syntax detector 识别出的 ECMAScript 语法特性。
+  feature: SyntaxFeatureId,
+  /// syntax detector 实际分析的文件路径，通常是构建产物文件。
   path: PathBuf,
   /// usage 在 `path` 对应文本里的 UTF-8 byte span。
   span: SourceSpan,
@@ -41,7 +41,7 @@ pub struct TargetCompatStatus {
 
 impl CompatDiagnostic {
   pub(crate) fn new(
-    feature: FeatureId,
+    feature: SyntaxFeatureId,
     path: PathBuf,
     span: SourceSpan,
     generated_position: SourcePosition,
@@ -58,7 +58,7 @@ impl CompatDiagnostic {
     }
   }
 
-  pub const fn feature(&self) -> FeatureId {
+  pub const fn feature(&self) -> SyntaxFeatureId {
     self.feature
   }
 

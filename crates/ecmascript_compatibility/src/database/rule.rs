@@ -4,6 +4,7 @@ use crate::target::Version;
 pub enum SupportRule {
   Always,
   Since(Version),
+  AtOrBefore(Version),
   Never,
   Unknown,
 }

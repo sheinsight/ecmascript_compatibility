@@ -12,8 +12,8 @@ pub use error::CompatAnalysisError;
 pub use report::{CompatReport, SourceMapStatus};
 
 use crate::{
-  CompatDatabase, CompatStatus, FeatureDetector, SourceFile, TargetQuery,
-  TargetResolver, evaluate,
+  CompatStatus, SourceFile, SyntaxCompatDatabase, SyntaxFeatureDetector,
+  TargetQuery, TargetResolver, evaluate,
   source_map::{
     DefaultSourceMapLoader, SourceMapDiscoveryError, SourceMapLoader,
     SourceMapResolveError, SourceMapResolver, SourceMapUnavailable,
@@ -24,12 +24,13 @@ use generated_source_index::GeneratedSourceIndex;
 
 /// 兼容性分析的对外入口。
 ///
-/// 调用方只需要提供源文件和目标运行时查询；内部会完成特性检测、Source Map 回源
-/// 和兼容性规则评估。底层模块仍然保留，但常规使用不需要手动拼接这些步骤。
+/// 调用方只需要提供源文件和目标运行时查询；内部会完成语法特性检测、Source Map
+/// 回源和兼容性规则评估。这个 analyzer 的定位是 ECMAScript syntax compat，
+/// 不检测运行时 API 调用。
 #[derive(Debug, Clone)]
 pub struct CompatAnalyzer<L = DefaultSourceMapLoader> {
-  detector: FeatureDetector,
-  database: CompatDatabase,
+  detector: SyntaxFeatureDetector,
+  database: SyntaxCompatDatabase,
   target_resolver: TargetResolver,
   source_map_resolver: SourceMapResolver,
   source_map_loader: L,
@@ -58,8 +59,8 @@ impl<L> CompatAnalyzer<L> {
     include_supported_targets: bool,
   ) -> Self {
     Self {
-      detector: FeatureDetector::new(),
-      database: CompatDatabase::new(),
+      detector: SyntaxFeatureDetector::new(),
+      database: SyntaxCompatDatabase::new(),
       target_resolver: TargetResolver,
       source_map_resolver: SourceMapResolver::new(),
       source_map_loader,
@@ -132,7 +133,7 @@ where
       let generated_position =
         source_index.position_for_offset(usage.span().start());
 
-      // detector 给出的是 byte span；Source Map 查询需要零基 UTF-16 行列。
+      // syntax detector 给出的是 byte span；Source Map 查询需要零基 UTF-16 行列。
       // 这里用 span 起点作为 diagnostic 的主要定位点，span 本身仍保留在结果里。
       let source_mapping = resolved_source_map
         .as_ref()
@@ -171,7 +172,7 @@ where
       }
 
       if !target_statuses.is_empty() {
-        // 一条 diagnostic 对应一个 feature usage。多个 target 的结果聚合在
+        // 一条 diagnostic 对应一个 syntax feature usage。多个 target 的结果聚合在
         // `target_statuses` 中，避免把 usage × target 展开成重复诊断。
         diagnostics.push(CompatDiagnostic::new(
           usage.feature(),

@@ -18,7 +18,7 @@ pub enum SourceKindError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum FeatureDetectionError {
+pub enum SyntaxFeatureDetectionError {
   #[error("failed to parse source file `{path}`: {diagnostics:?}")]
   Parse {
     path: PathBuf,

@@ -1,20 +1,20 @@
 use std::path::{Path, PathBuf};
 
-use crate::feature::FeatureUsage;
+use crate::syntax_feature::SyntaxFeatureUsage;
 
-/// 单个输入文件的特性检测结果。
+/// 单个输入文件的语法特性检测结果。
 ///
-/// 在 Source Map 链路中，这里的 `path` 表示 detector 实际解析的文件，通常是
+/// 在 Source Map 链路中，这里的 `path` 表示 syntax detector 实际解析的文件，通常是
 /// 构建后的产物文件，例如 `dist/main.js`。它不是 Source Map 文档路径，也不是
 /// Source Map 映射出来的 original source 路径。
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DetectionResult {
+pub struct SyntaxDetectionResult {
   path: PathBuf,
-  usages: Vec<FeatureUsage>,
+  usages: Vec<SyntaxFeatureUsage>,
 }
 
-impl DetectionResult {
-  pub(crate) fn new(path: PathBuf, usages: Vec<FeatureUsage>) -> Self {
+impl SyntaxDetectionResult {
+  pub(crate) fn new(path: PathBuf, usages: Vec<SyntaxFeatureUsage>) -> Self {
     Self { path, usages }
   }
 
@@ -25,8 +25,8 @@ impl DetectionResult {
     &self.path
   }
 
-  /// 返回源文件中检测到的全部特性使用位置。
-  pub fn usages(&self) -> &[FeatureUsage] {
+  /// 返回源文件中检测到的全部语法特性使用位置。
+  pub fn usages(&self) -> &[SyntaxFeatureUsage] {
     &self.usages
   }
 }

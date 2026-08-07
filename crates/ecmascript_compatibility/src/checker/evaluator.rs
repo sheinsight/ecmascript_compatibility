@@ -12,6 +12,9 @@ pub fn evaluate(rule: SupportRule, release: RuntimeRelease) -> CompatStatus {
     SupportRule::Never => CompatStatus::Unsupported,
     SupportRule::Unknown => CompatStatus::Unknown,
     SupportRule::Since(required) => evaluate_since(required, release),
+    SupportRule::AtOrBefore(known_supported) => {
+      evaluate_at_or_before(known_supported, release)
+    }
   }
 }
 
@@ -29,6 +32,31 @@ fn evaluate_since(required: Version, release: RuntimeRelease) -> CompatStatus {
         CompatStatus::Supported
       } else if range.end() < required {
         CompatStatus::Unsupported
+      } else {
+        CompatStatus::Mixed
+      }
+    }
+    RuntimeRelease::Preview | RuntimeRelease::All => CompatStatus::Unknown,
+  }
+}
+
+fn evaluate_at_or_before(
+  known_supported: Version,
+  release: RuntimeRelease,
+) -> CompatStatus {
+  match release {
+    RuntimeRelease::Exact(actual) => {
+      if actual >= known_supported {
+        CompatStatus::Supported
+      } else {
+        CompatStatus::Unknown
+      }
+    }
+    RuntimeRelease::Range(range) => {
+      if range.start() >= known_supported {
+        CompatStatus::Supported
+      } else if range.end() < known_supported {
+        CompatStatus::Unknown
       } else {
         CompatStatus::Mixed
       }
@@ -141,5 +169,24 @@ mod tests {
       CompatStatus::Unknown,
     );
     assert_eq!(evaluate(rule, RuntimeRelease::All), CompatStatus::Unknown,);
+  }
+
+  #[test]
+  fn evaluates_at_or_before_without_inventing_an_older_boundary() {
+    let rule = SupportRule::AtOrBefore(version(37));
+
+    assert_eq!(
+      evaluate(rule, RuntimeRelease::Exact(version(36))),
+      CompatStatus::Unknown,
+    );
+    assert_eq!(
+      evaluate(rule, RuntimeRelease::Exact(version(37))),
+      CompatStatus::Supported,
+    );
+    assert_eq!(
+      evaluate(rule, RuntimeRelease::Exact(version(38))),
+      CompatStatus::Supported,
+    );
+    assert_eq!(evaluate(rule, range(36, 37)), CompatStatus::Mixed);
   }
 }

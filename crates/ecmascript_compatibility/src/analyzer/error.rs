@@ -1,7 +1,7 @@
 use std::{io, path::PathBuf};
 
 use crate::{
-  FeatureDetectionError, SourceKindError,
+  SourceKindError, SyntaxFeatureDetectionError,
   error::{TargetQueryError, TargetResolveError},
   source_map::SourceMapResolveError,
 };
@@ -29,7 +29,7 @@ pub enum CompatAnalysisError {
   TargetResolve(#[from] TargetResolveError),
 
   #[error(transparent)]
-  Detection(#[from] FeatureDetectionError),
+  Detection(#[from] SyntaxFeatureDetectionError),
 
   #[error(transparent)]
   SourceMap(#[from] SourceMapResolveError),

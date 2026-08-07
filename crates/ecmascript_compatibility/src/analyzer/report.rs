@@ -39,7 +39,7 @@ pub struct CompatReport {
   path: PathBuf,
   /// target query 解析后的完整目标集合。
   targets: Vec<RuntimeTarget>,
-  /// detector 发现的 usage 总数，包含最终没有形成 diagnostic 的 supported usage。
+  /// syntax detector 发现的 usage 总数，包含最终没有形成 diagnostic 的 supported usage。
   detected_usage_count: usize,
   /// 文件级 Source Map 状态。
   source_map_status: SourceMapStatus,

@@ -1,40 +1,25 @@
-use crate::{
-  feature::FeatureId,
-  target::{Runtime, Version},
-};
+use crate::{syntax_feature::SyntaxFeatureId, target::Runtime};
 
 use super::SupportRule;
 
+/// ECMAScript 语法特性的兼容性规则表。
+///
+/// 数据来自 MDN Browser Compat Data 的 JavaScript 条目，但这里的查询入口只接受
+/// `SyntaxFeatureId`。运行时 API 条目即使存在于生成表中，也不会从这个领域模型暴露。
 #[derive(Debug, Default, Clone, Copy)]
-pub struct CompatDatabase;
+pub struct SyntaxCompatDatabase;
 
-impl CompatDatabase {
+impl SyntaxCompatDatabase {
   pub const fn new() -> Self {
     Self
   }
 
-  pub const fn support_rule(
+  pub fn support_rule(
     &self,
-    feature: FeatureId,
+    feature: SyntaxFeatureId,
     runtime: Runtime,
   ) -> SupportRule {
-    match feature {
-      FeatureId::OptionalChaining => optional_chaining(runtime),
-    }
-  }
-}
-
-// Source: MDN Browser Compat Data, optional chaining operator.
-// Only explicit `version_added` entries are encoded here. Entries marked as
-// `mirror` remain unknown until runtime-version inheritance is normalized.
-// https://github.com/mdn/browser-compat-data/blob/main/javascript/operators/optional_chaining.json
-const fn optional_chaining(runtime: Runtime) -> SupportRule {
-  match runtime {
-    Runtime::Chrome => SupportRule::Since(Version::from_major(80)),
-    Runtime::Firefox => SupportRule::Since(Version::from_major(74)),
-    Runtime::Safari => SupportRule::Since(Version::new(13, 1, 0, 0)),
-    Runtime::Node => SupportRule::Since(Version::new(14, 0, 0, 0)),
-    _ => SupportRule::Unknown,
+    super::mdn_generated::support_rule(feature.mdn_key(), runtime)
   }
 }
 
@@ -44,40 +29,102 @@ mod tests {
 
   #[test]
   fn returns_explicit_optional_chaining_support_boundaries() {
-    let database = CompatDatabase::new();
+    let database = SyntaxCompatDatabase::new();
 
     let cases = [
-      (Runtime::Chrome, SupportRule::Since(Version::from_major(80))),
+      (Runtime::Chrome, SupportRule::Since("80".parse().unwrap())),
+      (Runtime::Edge, SupportRule::Since("80".parse().unwrap())),
+      (Runtime::Firefox, SupportRule::Since("74".parse().unwrap())),
+      (Runtime::Safari, SupportRule::Since("13.1".parse().unwrap())),
+      (Runtime::Ios, SupportRule::Since("13.4".parse().unwrap())),
       (
-        Runtime::Firefox,
-        SupportRule::Since(Version::from_major(74)),
+        Runtime::ChromeAndroid,
+        SupportRule::Since("80".parse().unwrap()),
       ),
       (
-        Runtime::Safari,
-        SupportRule::Since(Version::new(13, 1, 0, 0)),
+        Runtime::FirefoxAndroid,
+        SupportRule::Since("79".parse().unwrap()),
       ),
-      (Runtime::Node, SupportRule::Since(Version::new(14, 0, 0, 0))),
+      (
+        Runtime::SamsungInternet,
+        SupportRule::Since("13.0".parse().unwrap()),
+      ),
+      (Runtime::Node, SupportRule::Since("14.0.0".parse().unwrap())),
+      (Runtime::InternetExplorer, SupportRule::Never),
     ];
 
     for (runtime, expected) in cases {
       assert_eq!(
-        database.support_rule(FeatureId::OptionalChaining, runtime),
+        database.support_rule(SyntaxFeatureId::OptionalChaining, runtime),
         expected,
       );
     }
   }
 
   #[test]
-  fn returns_unknown_for_unresolved_mirror_data() {
-    let database = CompatDatabase::new();
+  fn returns_unknown_for_unmapped_runtimes() {
+    let database = SyntaxCompatDatabase::new();
 
     assert_eq!(
-      database.support_rule(FeatureId::OptionalChaining, Runtime::Edge),
+      database
+        .support_rule(SyntaxFeatureId::OptionalChaining, Runtime::UcAndroid),
       SupportRule::Unknown,
     );
-    assert_eq!(
-      database.support_rule(FeatureId::OptionalChaining, Runtime::Ios),
-      SupportRule::Unknown,
-    );
+  }
+
+  #[test]
+  fn maps_detected_syntax_features_to_mdn_support_rules() {
+    let database = SyntaxCompatDatabase::new();
+
+    for feature in [
+      SyntaxFeatureId::OptionalChaining,
+      SyntaxFeatureId::NullishCoalescing,
+      SyntaxFeatureId::LogicalAndAssignment,
+      SyntaxFeatureId::LogicalOrAssignment,
+      SyntaxFeatureId::NullishCoalescingAssignment,
+      SyntaxFeatureId::DynamicImport,
+      SyntaxFeatureId::ImportMeta,
+      SyntaxFeatureId::BigIntLiteral,
+      SyntaxFeatureId::ArrowFunction,
+      SyntaxFeatureId::AsyncFunction,
+      SyntaxFeatureId::GeneratorFunction,
+      SyntaxFeatureId::AsyncGeneratorFunction,
+      SyntaxFeatureId::Class,
+      SyntaxFeatureId::PublicClassField,
+      SyntaxFeatureId::PrivateClassField,
+      SyntaxFeatureId::ClassStaticInitializationBlock,
+      SyntaxFeatureId::ForOf,
+      SyntaxFeatureId::ForAwaitOf,
+      SyntaxFeatureId::Spread,
+      SyntaxFeatureId::ObjectSpreadProperty,
+      SyntaxFeatureId::Destructuring,
+      SyntaxFeatureId::ArrayRestDestructuring,
+      SyntaxFeatureId::ObjectRestDestructuring,
+      SyntaxFeatureId::DefaultParameter,
+      SyntaxFeatureId::RestParameter,
+      SyntaxFeatureId::TemplateLiteral,
+      SyntaxFeatureId::NumericSeparator,
+      SyntaxFeatureId::OptionalCatchBinding,
+      SyntaxFeatureId::Await,
+      SyntaxFeatureId::PrivateClassFieldIn,
+      SyntaxFeatureId::PrivateClassMethod,
+      SyntaxFeatureId::MethodDefinition,
+      SyntaxFeatureId::AsyncMethod,
+      SyntaxFeatureId::AsyncGeneratorMethod,
+      SyntaxFeatureId::ComputedObjectPropertyName,
+      SyntaxFeatureId::ShorthandObjectProperty,
+      SyntaxFeatureId::ShorthandObjectMethod,
+      SyntaxFeatureId::ImportStatement,
+      SyntaxFeatureId::ExportStatement,
+      SyntaxFeatureId::ExportDefaultStatement,
+      SyntaxFeatureId::ExportNamespaceStatement,
+      SyntaxFeatureId::ImportAttribute,
+    ] {
+      assert_ne!(
+        database.support_rule(feature, Runtime::Chrome),
+        SupportRule::Unknown,
+        "{feature:?} is not mapped to an MDN BCD rule",
+      );
+    }
   }
 }

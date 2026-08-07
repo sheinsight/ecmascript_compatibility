@@ -1,5 +1,5 @@
-mod javascript;
 mod result;
+mod syntax;
 
-pub use javascript::FeatureDetector;
-pub use result::DetectionResult;
+pub use result::SyntaxDetectionResult;
+pub use syntax::SyntaxFeatureDetector;

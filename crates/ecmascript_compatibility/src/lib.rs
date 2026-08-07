@@ -3,9 +3,9 @@ pub mod checker;
 pub mod database;
 mod detector;
 mod error;
-mod feature;
 mod source;
 pub mod source_map;
+mod syntax_feature;
 pub mod target;
 
 pub use analyzer::{
@@ -13,13 +13,14 @@ pub use analyzer::{
   CompatReport, SourceMapStatus, TargetCompatStatus,
 };
 pub use checker::{CompatStatus, evaluate};
-pub use database::{CompatDatabase, SupportRule};
-pub use detector::{DetectionResult, FeatureDetector};
+pub use database::{SupportRule, SyntaxCompatDatabase};
+pub use detector::{SyntaxDetectionResult, SyntaxFeatureDetector};
 pub use error::{
-  FeatureDetectionError, SourceKindError, TargetQueryError, TargetResolveError,
+  SourceKindError, SyntaxFeatureDetectionError, TargetQueryError,
+  TargetResolveError,
 };
-pub use feature::{FeatureId, FeatureUsage, SourceSpan};
 pub use source::{SourceFile, SourceKind};
+pub use syntax_feature::{SourceSpan, SyntaxFeatureId, SyntaxFeatureUsage};
 pub use target::{
   Runtime, RuntimeRelease, RuntimeTarget, TargetQuery, TargetResolver,
 };
