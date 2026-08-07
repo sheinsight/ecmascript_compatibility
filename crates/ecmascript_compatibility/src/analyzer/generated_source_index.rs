@@ -6,40 +6,58 @@ use crate::source_map::SourcePosition;
 /// 这个索引把转换集中起来，避免调用方或分析流程里散落重复的偏移计算。
 #[derive(Debug, Clone)]
 pub(super) struct GeneratedSourceIndex<'source> {
-  line_starts: Vec<usize>,
-  line_is_ascii: Vec<bool>,
+  lines: Vec<LineColumnIndex>,
   source_text: &'source str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LineColumnIndex {
+  start: usize,
+  corrections: Vec<ColumnCorrection>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ColumnCorrection {
+  byte_offset: usize,
+  utf16_adjustment: i32,
 }
 
 impl<'source> GeneratedSourceIndex<'source> {
   pub(super) fn new(source_text: &'source str) -> Self {
-    let mut line_starts = vec![0];
-    let mut line_is_ascii = Vec::new();
-    let mut current_line_is_ascii = true;
+    let mut lines = vec![LineColumnIndex::new(0)];
+    let mut utf16_adjustment = 0;
 
-    for (index, byte) in source_text.bytes().enumerate() {
-      current_line_is_ascii &= byte.is_ascii();
+    for (index, character) in source_text.char_indices() {
+      if character == '\n' {
+        lines.push(LineColumnIndex::new(index + character.len_utf8()));
+        utf16_adjustment = 0;
+        continue;
+      }
 
-      if byte == b'\n' {
-        line_starts.push(index + 1);
-        line_is_ascii.push(current_line_is_ascii);
-        current_line_is_ascii = true;
+      let adjustment_delta =
+        character.len_utf16() as i32 - character.len_utf8() as i32;
+
+      if adjustment_delta != 0 {
+        utf16_adjustment += adjustment_delta;
+        lines
+          .last_mut()
+          .expect("there is always at least one line")
+          .corrections
+          .push(ColumnCorrection {
+            byte_offset: index + character.len_utf8(),
+            utf16_adjustment,
+          });
       }
     }
 
-    line_is_ascii.push(current_line_is_ascii);
-
-    Self {
-      line_starts,
-      line_is_ascii,
-      source_text,
-    }
+    Self { lines, source_text }
   }
 
   #[cfg(test)]
   fn position_for_offset(&self, offset: u32) -> SourcePosition {
     let offset = offset as usize;
-    let line = match self.line_starts.binary_search(&offset) {
+    let line = match self.lines.binary_search_by_key(&offset, |line| line.start)
+    {
       Ok(line) => line,
       Err(next_line) => next_line.saturating_sub(1),
     };
@@ -65,8 +83,7 @@ impl<'source> GeneratedSourceIndex<'source> {
     for (index, offset) in indexed_offsets {
       let offset = (offset as usize).min(self.source_text.len());
 
-      while line + 1 < self.line_starts.len()
-        && self.line_starts[line + 1] <= offset
+      while line + 1 < self.lines.len() && self.lines[line + 1].start <= offset
       {
         line += 1;
       }
@@ -82,14 +99,36 @@ impl<'source> GeneratedSourceIndex<'source> {
     offset: usize,
     line: usize,
   ) -> SourcePosition {
-    let line_start = self.line_starts[line];
-    let col = if self.line_is_ascii[line] {
-      (offset - line_start) as u32
-    } else {
-      self.source_text[line_start..offset].encode_utf16().count() as u32
-    };
+    let line_index = &self.lines[line];
+    let byte_column = offset - line_index.start;
+    let utf16_adjustment = line_index.utf16_adjustment_for_offset(offset);
+    let col = (byte_column as i32 + utf16_adjustment) as u32;
 
     SourcePosition::new(line as u32, col)
+  }
+}
+
+impl LineColumnIndex {
+  fn new(start: usize) -> Self {
+    Self {
+      start,
+      corrections: Vec::new(),
+    }
+  }
+
+  fn utf16_adjustment_for_offset(&self, offset: usize) -> i32 {
+    let correction_index = match self
+      .corrections
+      .binary_search_by_key(&offset, |correction| correction.byte_offset)
+    {
+      Ok(index) => Some(index),
+      Err(0) => None,
+      Err(next_index) => Some(next_index - 1),
+    };
+
+    correction_index
+      .map(|index| self.corrections[index].utf16_adjustment)
+      .unwrap_or(0)
   }
 }
 
@@ -111,6 +150,21 @@ mod tests {
     assert_eq!(
       index.position_for_offset("😀".len() as u32),
       SourcePosition::new(0, 2)
+    );
+  }
+
+  #[test]
+  fn uses_sparse_utf16_corrections_for_non_ascii_lines() {
+    let index = GeneratedSourceIndex::new("abc中def😀ghi");
+
+    assert_eq!(index.position_for_offset(3), SourcePosition::new(0, 3));
+    assert_eq!(
+      index.position_for_offset("abc中".len() as u32),
+      SourcePosition::new(0, 4),
+    );
+    assert_eq!(
+      index.position_for_offset("abc中def😀".len() as u32),
+      SourcePosition::new(0, 9),
     );
   }
 
