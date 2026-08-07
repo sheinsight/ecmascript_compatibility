@@ -1,0 +1,17 @@
+[package]
+name = "ecmascript_compatibility_binding"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+test = false
+
+[dependencies]
+ecmascript_compatibility = { path = "../ecmascript_compatibility" }
+napi = { workspace = true }
+napi-derive = { workspace = true }
+rayon = { workspace = true }
+
+[build-dependencies]
+napi-build = { workspace = true }

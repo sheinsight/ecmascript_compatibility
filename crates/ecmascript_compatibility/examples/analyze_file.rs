@@ -13,9 +13,17 @@ fn main() -> ExitCode {
     return ExitCode::from(2);
   };
 
-  let report = match CompatAnalyzer::new()
-    .analyze_path(&path, targets.iter().map(String::as_str))
-  {
+  let analyzer = CompatAnalyzer::new();
+  let resolved_targets =
+    match analyzer.resolve_targets(targets.iter().map(String::as_str)) {
+      Ok(targets) => targets,
+      Err(error) => {
+        eprintln!("analysis failed: {error}");
+        return ExitCode::FAILURE;
+      }
+    };
+
+  let report = match analyzer.analyze_path(&path, &resolved_targets) {
     Ok(report) => report,
     Err(error) => {
       eprintln!("analysis failed: {error}");

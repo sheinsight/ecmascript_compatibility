@@ -1,0 +1,625 @@
+use std::{
+  fs,
+  path::{Path, PathBuf},
+};
+
+use ecmascript_compatibility::{
+  CompatAnalyzer, CompatDiagnostic, CompatReport, CompatStatus, Runtime,
+  RuntimeRelease, RuntimeTarget, SourceMapStatus, SourceSpan,
+  TargetCompatStatus,
+  source_map::{
+    SourceIdentity, SourceLocation, SourceMapLoadError, SourceMapLoader,
+    SourceMapReference, SourceMapping, SourcePosition,
+  },
+};
+use napi::bindgen_prelude::*;
+use napi_derive::napi;
+use rayon::prelude::*;
+
+const DEFAULT_EXTENSIONS: &[&str] = &["js", "mjs", "cjs", "jsx"];
+
+#[napi(object)]
+pub struct AnalyzeCwdOptions {
+  pub include_supported_targets: Option<bool>,
+  pub extensions: Option<Vec<String>>,
+  pub source_maps: Option<bool>,
+  pub parallelism: Option<u32>,
+  pub max_file_size_bytes: Option<u32>,
+}
+
+#[napi(object)]
+pub struct AnalyzePathOptions {
+  pub include_supported_targets: Option<bool>,
+  pub source_maps: Option<bool>,
+}
+
+#[napi(object)]
+pub struct JsCompatDirectoryReport {
+  pub cwd: String,
+  pub file_count: u32,
+  pub skipped_file_count: u32,
+  pub diagnostic_count: u32,
+  pub reports: Vec<JsCompatFileReport>,
+  pub errors: Vec<JsCompatFileError>,
+  pub skipped: Vec<JsSkippedFile>,
+}
+
+#[napi(object)]
+pub struct JsCompatFileError {
+  pub path: String,
+  pub message: String,
+}
+
+#[napi(object)]
+pub struct JsSkippedFile {
+  pub path: String,
+  pub size: u32,
+}
+
+#[napi(object)]
+pub struct JsCompatFileReport {
+  pub path: String,
+  pub targets: Vec<JsRuntimeTarget>,
+  pub detected_usage_count: u32,
+  pub source_map_status: JsSourceMapStatus,
+  pub diagnostics: Vec<JsCompatDiagnostic>,
+}
+
+#[napi(object)]
+pub struct JsRuntimeTarget {
+  pub runtime: String,
+  pub release: String,
+}
+
+#[napi(object)]
+pub struct JsSourceMapStatus {
+  pub kind: String,
+  pub discovery_kind: Option<String>,
+  pub reference: Option<String>,
+  pub source_count: Option<u32>,
+  pub reason: Option<String>,
+}
+
+#[napi(object)]
+pub struct JsCompatDiagnostic {
+  pub feature: String,
+  pub path: String,
+  pub span: JsSourceSpan,
+  pub generated_position: JsSourcePosition,
+  pub source_mapping: JsSourceMapping,
+  pub target_statuses: Vec<JsTargetCompatStatus>,
+}
+
+#[napi(object)]
+pub struct JsSourceSpan {
+  pub start: u32,
+  pub end: u32,
+}
+
+#[napi(object)]
+pub struct JsSourcePosition {
+  pub line: u32,
+  pub column: u32,
+}
+
+#[napi(object)]
+pub struct JsSourceMapping {
+  pub kind: String,
+  pub source: Option<String>,
+  pub start: Option<JsSourcePosition>,
+  pub end: Option<JsSourcePosition>,
+  pub reason: Option<String>,
+}
+
+#[napi(object)]
+pub struct JsTargetCompatStatus {
+  pub target: JsRuntimeTarget,
+  pub status: String,
+}
+
+#[napi(js_name = "analyzeCwd")]
+pub fn analyze_cwd(
+  cwd: String,
+  targets: Vec<String>,
+  options: Option<AnalyzeCwdOptions>,
+) -> Result<JsCompatDirectoryReport> {
+  let cwd = normalize_cwd(cwd)?;
+  let extensions = options
+    .as_ref()
+    .and_then(|options| options.extensions.as_ref())
+    .map_or_else(default_extensions, |extensions| {
+      normalize_extensions(extensions)
+    });
+  let include_supported_targets = options
+    .as_ref()
+    .and_then(|options| options.include_supported_targets);
+  let source_maps = options
+    .as_ref()
+    .and_then(|options| options.source_maps)
+    .unwrap_or(true);
+  let parallelism = options.as_ref().and_then(|options| options.parallelism);
+  let max_file_size_bytes = options
+    .as_ref()
+    .and_then(|options| options.max_file_size_bytes);
+
+  if source_maps {
+    analyze_cwd_with_analyzer(
+      &cwd,
+      &extensions,
+      &targets,
+      parallelism,
+      max_file_size_bytes,
+      &analyzer_from_options(include_supported_targets),
+    )
+  } else {
+    analyze_cwd_with_analyzer(
+      &cwd,
+      &extensions,
+      &targets,
+      parallelism,
+      max_file_size_bytes,
+      &analyzer_without_source_maps(include_supported_targets),
+    )
+  }
+}
+
+fn analyze_cwd_with_analyzer<L>(
+  cwd: &Path,
+  extensions: &[String],
+  targets: &[String],
+  parallelism: Option<u32>,
+  max_file_size_bytes: Option<u32>,
+  analyzer: &CompatAnalyzer<L>,
+) -> Result<JsCompatDirectoryReport>
+where
+  L: SourceMapLoader + Sync,
+{
+  let discovered_files = discover_js_files(cwd, extensions)?;
+  let (files, skipped) =
+    partition_files_by_size(discovered_files, max_file_size_bytes)?;
+  let resolved_targets = analyzer
+    .resolve_targets(targets.iter().map(String::as_str))
+    .map_err(to_napi_error)?;
+  let entries = if let Some(parallelism) = parallelism {
+    let pool = rayon::ThreadPoolBuilder::new()
+      .num_threads(parallelism.max(1) as usize)
+      .build()
+      .map_err(to_napi_error)?;
+
+    pool.install(|| {
+      analyze_files_in_parallel(&files, &resolved_targets, analyzer)
+    })
+  } else {
+    analyze_files_in_parallel(&files, &resolved_targets, analyzer)
+  };
+
+  let mut reports = Vec::new();
+  let mut errors = Vec::new();
+
+  for entry in entries {
+    match entry {
+      FileAnalysisEntry::Report(report) => reports.push(report),
+      FileAnalysisEntry::Error(error) => errors.push(error),
+    }
+  }
+
+  let diagnostic_count = reports
+    .iter()
+    .map(|report: &JsCompatFileReport| report.diagnostics.len() as u32)
+    .sum();
+
+  Ok(JsCompatDirectoryReport {
+    cwd: path_label(cwd),
+    file_count: reports.len() as u32,
+    skipped_file_count: skipped.len() as u32,
+    diagnostic_count,
+    reports,
+    errors,
+    skipped,
+  })
+}
+
+fn analyze_files_in_parallel<L>(
+  files: &[PathBuf],
+  targets: &[RuntimeTarget],
+  analyzer: &CompatAnalyzer<L>,
+) -> Vec<FileAnalysisEntry>
+where
+  L: SourceMapLoader + Sync,
+{
+  files
+    .par_iter()
+    .map(|path| match analyzer.analyze_path(path, targets) {
+      Ok(report) => FileAnalysisEntry::Report(report.into()),
+      Err(error) => FileAnalysisEntry::Error(JsCompatFileError {
+        path: path_label(path),
+        message: error.to_string(),
+      }),
+    })
+    .collect()
+}
+
+enum FileAnalysisEntry {
+  Report(JsCompatFileReport),
+  Error(JsCompatFileError),
+}
+
+fn partition_files_by_size(
+  files: Vec<PathBuf>,
+  max_file_size_bytes: Option<u32>,
+) -> Result<(Vec<PathBuf>, Vec<JsSkippedFile>)> {
+  let Some(max_file_size_bytes) = max_file_size_bytes else {
+    return Ok((files, Vec::new()));
+  };
+
+  let mut included = Vec::new();
+  let mut skipped = Vec::new();
+
+  for path in files {
+    let size = fs::metadata(&path).map_err(to_napi_error)?.len();
+
+    if size > u64::from(max_file_size_bytes) {
+      skipped.push(JsSkippedFile {
+        path: path_label(&path),
+        size: size.min(u64::from(u32::MAX)) as u32,
+      });
+    } else {
+      included.push(path);
+    }
+  }
+
+  Ok((included, skipped))
+}
+
+#[napi(js_name = "analyzePath")]
+pub fn analyze_path(
+  path: String,
+  targets: Vec<String>,
+  options: Option<AnalyzePathOptions>,
+) -> Result<JsCompatFileReport> {
+  let include_supported_targets = options
+    .as_ref()
+    .and_then(|options| options.include_supported_targets);
+  let source_maps = options
+    .and_then(|options| options.source_maps)
+    .unwrap_or(true);
+
+  if source_maps {
+    let analyzer = analyzer_from_options(include_supported_targets);
+    let resolved_targets = analyzer
+      .resolve_targets(targets.iter().map(String::as_str))
+      .map_err(to_napi_error)?;
+
+    analyzer
+      .analyze_path(path, &resolved_targets)
+      .map(Into::into)
+      .map_err(to_napi_error)
+  } else {
+    let analyzer = analyzer_without_source_maps(include_supported_targets);
+    let resolved_targets = analyzer
+      .resolve_targets(targets.iter().map(String::as_str))
+      .map_err(to_napi_error)?;
+
+    analyzer
+      .analyze_path(path, &resolved_targets)
+      .map(Into::into)
+      .map_err(to_napi_error)
+  }
+}
+
+fn analyzer_from_options(
+  include_supported_targets: Option<bool>,
+) -> CompatAnalyzer {
+  CompatAnalyzer::builder()
+    .include_supported_targets(include_supported_targets.unwrap_or(false))
+    .build()
+}
+
+fn analyzer_without_source_maps(
+  include_supported_targets: Option<bool>,
+) -> CompatAnalyzer<DisabledSourceMapLoader> {
+  CompatAnalyzer::builder()
+    .source_map_loader(DisabledSourceMapLoader)
+    .include_supported_targets(include_supported_targets.unwrap_or(false))
+    .build()
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DisabledSourceMapLoader;
+
+impl SourceMapLoader for DisabledSourceMapLoader {
+  fn load(
+    &self,
+    reference: &SourceMapReference,
+  ) -> std::result::Result<Vec<u8>, SourceMapLoadError> {
+    Err(SourceMapLoadError::UnsupportedReferenceKind {
+      expected: "disabled source map loading",
+      actual: source_map_reference_kind(reference),
+    })
+  }
+}
+
+fn source_map_reference_kind(reference: &SourceMapReference) -> &'static str {
+  match reference {
+    SourceMapReference::InlineData(_) => "inline data URI",
+    SourceMapReference::LocalFile(_) => "local file",
+    SourceMapReference::RemoteUrl(_) => "remote URL",
+  }
+}
+
+fn normalize_cwd(cwd: String) -> Result<PathBuf> {
+  let path = PathBuf::from(cwd);
+  let metadata = fs::metadata(&path).map_err(to_napi_error)?;
+
+  if !metadata.is_dir() {
+    return Err(Error::new(
+      Status::InvalidArg,
+      format!("cwd is not a directory: `{}`", path.display()),
+    ));
+  }
+
+  path.canonicalize().map_err(to_napi_error)
+}
+
+fn discover_js_files(
+  cwd: &Path,
+  extensions: &[String],
+) -> Result<Vec<PathBuf>> {
+  let mut files = Vec::new();
+  collect_js_files(cwd, extensions, &mut files)?;
+  files.sort();
+  Ok(files)
+}
+
+fn collect_js_files(
+  dir: &Path,
+  extensions: &[String],
+  files: &mut Vec<PathBuf>,
+) -> Result<()> {
+  for entry in fs::read_dir(dir).map_err(to_napi_error)? {
+    let entry = entry.map_err(to_napi_error)?;
+    let path = entry.path();
+    let file_type = entry.file_type().map_err(to_napi_error)?;
+
+    if file_type.is_dir() {
+      collect_js_files(&path, extensions, files)?;
+    } else if file_type.is_file() && has_extension(&path, extensions) {
+      files.push(path);
+    }
+  }
+
+  Ok(())
+}
+
+fn has_extension(path: &Path, extensions: &[String]) -> bool {
+  path
+    .extension()
+    .and_then(|extension| extension.to_str())
+    .is_some_and(|extension| {
+      extensions
+        .iter()
+        .any(|expected| extension.eq_ignore_ascii_case(expected))
+    })
+}
+
+fn default_extensions() -> Vec<String> {
+  DEFAULT_EXTENSIONS
+    .iter()
+    .map(|extension| (*extension).to_string())
+    .collect()
+}
+
+fn normalize_extensions(extensions: &[String]) -> Vec<String> {
+  let normalized = extensions
+    .iter()
+    .filter_map(|extension| {
+      let extension = extension.trim().trim_start_matches('.');
+
+      if extension.is_empty() {
+        None
+      } else {
+        Some(extension.to_ascii_lowercase())
+      }
+    })
+    .collect::<Vec<_>>();
+
+  if normalized.is_empty() {
+    default_extensions()
+  } else {
+    normalized
+  }
+}
+
+impl From<CompatReport> for JsCompatFileReport {
+  fn from(report: CompatReport) -> Self {
+    Self {
+      path: path_label(report.path()),
+      targets: report.targets().iter().copied().map(Into::into).collect(),
+      detected_usage_count: report.detected_usage_count() as u32,
+      source_map_status: report.source_map_status().into(),
+      diagnostics: report
+        .diagnostics()
+        .iter()
+        .map(JsCompatDiagnostic::from)
+        .collect(),
+    }
+  }
+}
+
+impl From<RuntimeTarget> for JsRuntimeTarget {
+  fn from(target: RuntimeTarget) -> Self {
+    Self {
+      runtime: runtime_label(target.runtime()).to_string(),
+      release: release_label(target.release()),
+    }
+  }
+}
+
+impl From<&SourceMapStatus> for JsSourceMapStatus {
+  fn from(status: &SourceMapStatus) -> Self {
+    match status {
+      SourceMapStatus::Resolved {
+        discovery_kind,
+        reference,
+        source_count,
+      } => Self {
+        kind: "resolved".to_string(),
+        discovery_kind: Some(format!("{discovery_kind:?}")),
+        reference: Some(source_map_reference_label(reference)),
+        source_count: Some(*source_count),
+        reason: None,
+      },
+      SourceMapStatus::Unavailable(reason) => Self {
+        kind: "unavailable".to_string(),
+        discovery_kind: None,
+        reference: None,
+        source_count: None,
+        reason: Some(format!("{reason:?}")),
+      },
+    }
+  }
+}
+
+impl From<&CompatDiagnostic> for JsCompatDiagnostic {
+  fn from(diagnostic: &CompatDiagnostic) -> Self {
+    Self {
+      feature: format!("{:?}", diagnostic.feature()),
+      path: path_label(diagnostic.path()),
+      span: diagnostic.span().into(),
+      generated_position: diagnostic.generated_position().into(),
+      source_mapping: diagnostic.source_mapping().into(),
+      target_statuses: diagnostic
+        .target_statuses()
+        .iter()
+        .copied()
+        .map(Into::into)
+        .collect(),
+    }
+  }
+}
+
+impl From<SourceSpan> for JsSourceSpan {
+  fn from(span: SourceSpan) -> Self {
+    Self {
+      start: span.start(),
+      end: span.end(),
+    }
+  }
+}
+
+impl From<SourcePosition> for JsSourcePosition {
+  fn from(position: SourcePosition) -> Self {
+    Self {
+      line: position.line(),
+      column: position.col(),
+    }
+  }
+}
+
+impl From<&SourceMapping> for JsSourceMapping {
+  fn from(mapping: &SourceMapping) -> Self {
+    match mapping {
+      SourceMapping::NotResolved => Self {
+        kind: "notResolved".to_string(),
+        source: None,
+        start: None,
+        end: None,
+        reason: None,
+      },
+      SourceMapping::Mapped(location) => source_location_mapping(location),
+      SourceMapping::Unavailable(reason) => Self {
+        kind: "unavailable".to_string(),
+        source: None,
+        start: None,
+        end: None,
+        reason: Some(format!("{reason:?}")),
+      },
+    }
+  }
+}
+
+impl From<TargetCompatStatus> for JsTargetCompatStatus {
+  fn from(target_status: TargetCompatStatus) -> Self {
+    Self {
+      target: target_status.target().into(),
+      status: status_label(target_status.status()).to_string(),
+    }
+  }
+}
+
+fn source_location_mapping(location: &SourceLocation) -> JsSourceMapping {
+  JsSourceMapping {
+    kind: "mapped".to_string(),
+    source: Some(source_identity_label(location.source())),
+    start: Some(location.start().into()),
+    end: location.end().map(Into::into),
+    reason: None,
+  }
+}
+
+fn source_identity_label(source: &SourceIdentity) -> String {
+  if let Some(path) = source.as_file() {
+    path_label(path)
+  } else if let Some(source) = source.as_str() {
+    source.to_string()
+  } else {
+    "<unknown>".to_string()
+  }
+}
+
+fn source_map_reference_label(reference: &SourceMapReference) -> String {
+  format!("{reference:?}")
+}
+
+fn runtime_label(runtime: Runtime) -> &'static str {
+  match runtime {
+    Runtime::InternetExplorer => "ie",
+    Runtime::Edge => "edge",
+    Runtime::Firefox => "firefox",
+    Runtime::Chrome => "chrome",
+    Runtime::Safari => "safari",
+    Runtime::Opera => "opera",
+    Runtime::Ios => "ios",
+    Runtime::OperaMini => "opera-mini",
+    Runtime::Android => "android",
+    Runtime::Blackberry => "blackberry",
+    Runtime::OperaMobile => "opera-mobile",
+    Runtime::ChromeAndroid => "chrome-android",
+    Runtime::FirefoxAndroid => "firefox-android",
+    Runtime::InternetExplorerMobile => "ie-mobile",
+    Runtime::UcAndroid => "uc-android",
+    Runtime::SamsungInternet => "samsung-internet",
+    Runtime::QqAndroid => "qq-android",
+    Runtime::Baidu => "baidu",
+    Runtime::KaiOS => "kaios",
+    Runtime::Node => "node",
+  }
+}
+
+fn release_label(release: RuntimeRelease) -> String {
+  match release {
+    RuntimeRelease::Exact(version) => version.to_string(),
+    RuntimeRelease::Range(range) => {
+      format!("{}-{}", range.start(), range.end())
+    }
+    RuntimeRelease::Preview => "preview".to_string(),
+    RuntimeRelease::All => "all".to_string(),
+  }
+}
+
+fn status_label(status: CompatStatus) -> &'static str {
+  match status {
+    CompatStatus::Supported => "supported",
+    CompatStatus::Unsupported => "unsupported",
+    CompatStatus::Mixed => "mixed",
+    CompatStatus::Unknown => "unknown",
+  }
+}
+
+fn path_label(path: &Path) -> String {
+  path.display().to_string()
+}
+
+fn to_napi_error(error: impl std::error::Error) -> Error {
+  Error::new(Status::GenericFailure, error.to_string())
+}

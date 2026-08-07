@@ -47,8 +47,9 @@ CLI 会输出：
 use ecmascript_compatibility::CompatAnalyzer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-  let report = CompatAnalyzer::new()
-    .analyze_path("dist/app.js", ["chrome 60", "safari 13"])?;
+  let analyzer = CompatAnalyzer::new();
+  let targets = analyzer.resolve_targets(["chrome 60", "safari 13"])?;
+  let report = analyzer.analyze_path("dist/app.js", &targets)?;
 
   for diagnostic in report.diagnostics() {
     println!(
@@ -70,6 +71,32 @@ cargo run -p ecmascript_compatibility --example analyze_file -- dist/app.js "chr
 
 更完整的 API 说明见 [docs/api-usage.md](docs/api-usage.md)。
 
+## Node.js API
+
+仓库提供 napi-rs binding 包，JS 侧可以直接传入 `cwd`，由 native 层递归扫描
+目录下的 `.js`、`.mjs`、`.cjs` 和 `.jsx` 文件并批量分析：
+
+```js
+const { analyzeCwd } = require("@shined/ecmascript-compatibility");
+
+const report = analyzeCwd(process.cwd(), ["chrome 60", "safari 13"], {
+  sourceMaps: false,
+});
+
+console.log(report.fileCount);
+console.log(report.diagnosticCount);
+```
+
+`analyzeCwd` 会并行分析文件。需要限制 worker 数时可以传
+`parallelism`；需要完整 Source Map 回源时把 `sourceMaps` 设为 `true` 或省略。
+如果调用方明确想跳过超大 bundle，可以额外传 `maxFileSizeBytes`，默认不会跳过。
+
+本地构建 binding：
+
+```sh
+pnpm --filter @shined/ecmascript-compatibility build
+```
+
 ## 数据同步
 
 MDN 数据同步脚本只生成 `SyntaxFeatureId` 实际引用的条目，不把完整 JavaScript BCD 表写进源码：
@@ -86,6 +113,7 @@ node scripts/sync_mdn_bcd.js
 
 ```sh
 cargo fmt --all
-cargo test -p ecmascript_compatibility
-cargo clippy -p ecmascript_compatibility --all-targets -- -D warnings
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+pnpm --filter @shined/ecmascript-compatibility build
 ```

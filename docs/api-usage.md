@@ -1,6 +1,6 @@
 # API 使用说明
 
-当前对外推荐入口是 `CompatAnalyzer`。调用方提供 JavaScript 文件和目标运行时查询，分析器返回 `CompatReport`。
+当前对外推荐入口是 `CompatAnalyzer`。调用方先把目标运行时查询解析为 `RuntimeTarget`，再把 JavaScript 文件和解析后的 targets 交给分析器，最终返回 `CompatReport`。
 
 ## 最小用法
 
@@ -8,8 +8,9 @@
 use ecmascript_compatibility::CompatAnalyzer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-  let report = CompatAnalyzer::new()
-    .analyze_path("dist/app.js", ["chrome 60", "safari 13"])?;
+  let analyzer = CompatAnalyzer::new();
+  let targets = analyzer.resolve_targets(["chrome 60", "safari 13"])?;
+  let report = analyzer.analyze_path("dist/app.js", &targets)?;
 
   for diagnostic in report.diagnostics() {
     println!(
@@ -27,14 +28,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## 目标运行时查询
 
-`analyze_path` 接受字符串列表：
+目标查询字符串通过 `resolve_targets` 解析，`analyze_path` 接受解析后的 targets：
 
 ```rust
-let report = CompatAnalyzer::new()
-  .analyze_path("dist/app.js", ["chrome 60", "firefox 78", "node 14"])?;
+let analyzer = CompatAnalyzer::new();
+let targets = analyzer.resolve_targets(["chrome 60", "firefox 78", "node 14"])?;
+let report = analyzer.analyze_path("dist/app.js", &targets)?;
 ```
 
-查询字符串会被解析为 `RuntimeTarget`。解析结果可以通过 `report.targets()` 获取。
+解析结果是 `RuntimeTarget` 列表。报告中的 `report.targets()` 会保留本次分析使用的 targets。
 
 ## Source Map 结果
 
@@ -48,8 +50,9 @@ let report = CompatAnalyzer::new()
 ```rust
 use ecmascript_compatibility::{CompatAnalyzer, source_map::SourceMapping};
 
-let report = CompatAnalyzer::new()
-  .analyze_path("dist/app.js", ["chrome 60"])?;
+let analyzer = CompatAnalyzer::new();
+let targets = analyzer.resolve_targets(["chrome 60"])?;
+let report = analyzer.analyze_path("dist/app.js", &targets)?;
 
 for diagnostic in report.diagnostics() {
   match diagnostic.source_mapping() {
@@ -85,8 +88,9 @@ let source = SourceFile::from_path(
   "const value = object?.field;".to_string(),
 )?;
 
-let report = CompatAnalyzer::new()
-  .analyze_source(source, ["chrome 60"])?;
+let analyzer = CompatAnalyzer::new();
+let targets = analyzer.resolve_targets(["chrome 60"])?;
+let report = analyzer.analyze_source(source, &targets)?;
 ```
 
 `SourceFile` 的 path 仍用于 Source Map 相对路径解析和诊断展示。

@@ -23,3 +23,6 @@ debug
 # Added by cargo
 
 /target
+
+# NAPI-RS native build output
+crates/binding/*.node

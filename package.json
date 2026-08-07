@@ -11,5 +11,8 @@
 	"license": "MIT",
 	"packageManager": "pnpm@12.0.0-beta.4",
 	"scripts": {
+		"build": "pnpm --filter @shined/ecmascript-compatibility build",
+		"build:debug": "pnpm --filter @shined/ecmascript-compatibility build:debug",
+		"test": "pnpm --filter @shined/ecmascript-compatibility test"
 	}
 }

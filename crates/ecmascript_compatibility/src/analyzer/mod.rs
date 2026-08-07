@@ -12,8 +12,8 @@ pub use error::CompatAnalysisError;
 pub use report::{CompatReport, SourceMapStatus};
 
 use crate::{
-  CompatStatus, SourceFile, SyntaxCompatDatabase, SyntaxFeatureDetector,
-  TargetQuery, TargetResolver, evaluate,
+  CompatStatus, RuntimeTarget, SourceFile, SyntaxCompatDatabase,
+  SyntaxFeatureDetector, TargetQuery, TargetResolver, evaluate,
   source_map::{
     DefaultSourceMapLoader, SourceMapDiscoveryError, SourceMapLoader,
     SourceMapResolveError, SourceMapResolver, SourceMapUnavailable,
@@ -24,9 +24,9 @@ use generated_source_index::GeneratedSourceIndex;
 
 /// 兼容性分析的对外入口。
 ///
-/// 调用方只需要提供源文件和目标运行时查询；内部会完成语法特性检测、Source Map
-/// 回源和兼容性规则评估。这个 analyzer 的定位是 ECMAScript syntax compat，
-/// 不检测运行时 API 调用。
+/// 调用方先把目标运行时查询解析为 `RuntimeTarget`，再把源文件和 targets
+/// 交给 analyzer；内部会完成语法特性检测、Source Map 回源和兼容性规则评估。
+/// 这个 analyzer 的定位是 ECMAScript syntax compat，不检测运行时 API 调用。
 #[derive(Debug, Clone)]
 pub struct CompatAnalyzer<L = DefaultSourceMapLoader> {
   detector: SyntaxFeatureDetector,
@@ -77,15 +77,11 @@ where
   ///
   /// Source Map 会按 `sourceMappingURL` 或同名 `.map` 文件自动发现；找不到
   /// Source Map 不会中断分析，报告会保留 generated 位置并标记映射不可用。
-  pub fn analyze_path<I, S>(
+  pub fn analyze_path(
     &self,
     path: impl AsRef<Path>,
-    target_queries: I,
-  ) -> Result<CompatReport, CompatAnalysisError>
-  where
-    I: IntoIterator<Item = S>,
-    S: Into<String>,
-  {
+    targets: &[RuntimeTarget],
+  ) -> Result<CompatReport, CompatAnalysisError> {
     let path = path.as_ref();
     let source_text = fs::read_to_string(path).map_err(|source| {
       CompatAnalysisError::ReadSource {
@@ -95,24 +91,37 @@ where
     })?;
     let source = SourceFile::from_path(path.to_path_buf(), source_text)?;
 
-    self.analyze_source(source, target_queries)
+    self.analyze_source(source, targets)
+  }
+
+  /// 解析 target 查询，供需要批量分析多个文件的调用方复用结果。
+  ///
+  /// 目录级或批量调用方应先调用这个方法，再把结果传给 `analyze_path` 或
+  /// `analyze_source`，避免对同一组 Browserslist 查询重复解析。
+  pub fn resolve_targets<I, S>(
+    &self,
+    target_queries: I,
+  ) -> Result<Vec<RuntimeTarget>, CompatAnalysisError>
+  where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+  {
+    let target_query = TargetQuery::new(target_queries)?;
+    self
+      .target_resolver
+      .resolve(&target_query)
+      .map_err(CompatAnalysisError::from)
   }
 
   /// 分析调用方已经构造好的 `SourceFile`。
   ///
   /// 这个入口适合虚拟文件、内存内容或上层已经完成读取的场景。`SourceFile::path`
   /// 仍会用于 Source Map 相对路径解析和最终诊断展示。
-  pub fn analyze_source<I, S>(
+  pub fn analyze_source(
     &self,
     source: SourceFile,
-    target_queries: I,
-  ) -> Result<CompatReport, CompatAnalysisError>
-  where
-    I: IntoIterator<Item = S>,
-    S: Into<String>,
-  {
-    let target_query = TargetQuery::new(target_queries)?;
-    let targets = self.target_resolver.resolve(&target_query)?;
+    targets: &[RuntimeTarget],
+  ) -> Result<CompatReport, CompatAnalysisError> {
     let detection = self.detector.detect(&source)?;
     let source_index = GeneratedSourceIndex::new(source.source_text());
 
@@ -154,7 +163,7 @@ where
 
       let mut target_statuses = Vec::new();
 
-      for target in &targets {
+      for target in targets {
         let rule = self
           .database
           .support_rule(usage.feature(), target.runtime());
@@ -187,7 +196,7 @@ where
 
     Ok(CompatReport::new(
       detection.path().to_path_buf(),
-      targets,
+      targets.to_vec(),
       detection.usages().len(),
       source_map_status,
       diagnostics,
@@ -286,9 +295,9 @@ mod tests {
   fn analyzes_source_and_returns_non_supported_diagnostics() {
     let source = SourceFile::javascript("input.js", "const name = user?.name;");
 
-    let report = CompatAnalyzer::new()
-      .analyze_source(source, ["chrome 79"])
-      .unwrap();
+    let analyzer = CompatAnalyzer::new();
+    let targets = analyzer.resolve_targets(["chrome 79"]).unwrap();
+    let report = analyzer.analyze_source(source, &targets).unwrap();
 
     assert_eq!(report.detected_usage_count(), 1);
     assert_eq!(report.diagnostics().len(), 1);
@@ -303,9 +312,9 @@ mod tests {
   fn keeps_supported_targets_out_of_diagnostics() {
     let source = SourceFile::javascript("input.js", "const name = user?.name;");
 
-    let report = CompatAnalyzer::new()
-      .analyze_source(source, ["chrome 80"])
-      .unwrap();
+    let analyzer = CompatAnalyzer::new();
+    let targets = analyzer.resolve_targets(["chrome 80"]).unwrap();
+    let report = analyzer.analyze_source(source, &targets).unwrap();
 
     assert!(report.diagnostics().is_empty());
   }
@@ -314,11 +323,11 @@ mod tests {
   fn can_include_supported_targets_in_diagnostics() {
     let source = SourceFile::javascript("input.js", "const name = user?.name;");
 
-    let report = CompatAnalyzer::builder()
+    let analyzer = CompatAnalyzer::builder()
       .include_supported_targets(true)
-      .build()
-      .analyze_source(source, ["chrome 80"])
-      .unwrap();
+      .build();
+    let targets = analyzer.resolve_targets(["chrome 80"]).unwrap();
+    let report = analyzer.analyze_source(source, &targets).unwrap();
 
     assert_eq!(report.diagnostics().len(), 1);
     assert_eq!(
@@ -350,11 +359,11 @@ mod tests {
 
     let source = SourceFile::javascript("dist/input.js", "user?.name;");
 
-    let report = CompatAnalyzer::builder()
+    let analyzer = CompatAnalyzer::builder()
       .source_map_loader(StaticSourceMapLoader)
-      .build()
-      .analyze_source(source, ["chrome 79"])
-      .unwrap();
+      .build();
+    let targets = analyzer.resolve_targets(["chrome 79"]).unwrap();
+    let report = analyzer.analyze_source(source, &targets).unwrap();
 
     assert!(matches!(
       report.source_map_status(),
@@ -366,9 +375,11 @@ mod tests {
   fn groups_target_statuses_by_detected_usage() {
     let source = SourceFile::javascript("input.js", "const name = user?.name;");
 
-    let report = CompatAnalyzer::new()
-      .analyze_source(source, ["chrome 79", "firefox 73"])
+    let analyzer = CompatAnalyzer::new();
+    let targets = analyzer
+      .resolve_targets(["chrome 79", "firefox 73"])
       .unwrap();
+    let report = analyzer.analyze_source(source, &targets).unwrap();
 
     assert_eq!(report.diagnostics().len(), 1);
     assert_eq!(report.diagnostics()[0].target_statuses().len(), 2);
@@ -378,9 +389,9 @@ mod tests {
   fn records_missing_source_map_as_report_status() {
     let source = SourceFile::javascript("input.js", "const name = user?.name;");
 
-    let report = CompatAnalyzer::new()
-      .analyze_source(source, ["chrome 79"])
-      .unwrap();
+    let analyzer = CompatAnalyzer::new();
+    let targets = analyzer.resolve_targets(["chrome 79"]).unwrap();
+    let report = analyzer.analyze_source(source, &targets).unwrap();
 
     assert!(matches!(
       report.source_map_status(),
