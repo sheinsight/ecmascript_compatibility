@@ -285,7 +285,7 @@ mod tests {
       .resolve_source_file(&source, &MissingLoader)
       .unwrap();
 
-    assert_eq!(resolved.is_none(), true);
+    assert!(resolved.is_none());
   }
 
   #[test]

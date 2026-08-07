@@ -232,7 +232,7 @@ mod tests {
   use super::*;
 
   #[test]
-  fn new_feature_usage_starts_with_unresolved_source_mapping() {
+  fn new_syntax_feature_usage_starts_with_unresolved_source_mapping() {
     let usage = SyntaxFeatureUsage::new(
       SyntaxFeatureId::OptionalChaining,
       SourceSpan::new(10, 20),

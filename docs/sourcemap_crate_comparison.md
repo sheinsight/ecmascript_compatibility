@@ -1004,7 +1004,7 @@ use oxc_sourcemap::{SourceMap, Token, SourceViewToken, SourceMapBuilder};
 | Design Section | Requirement | Best Fit | Secondary |
 |---|---|---|---|
 | §4.1 Detector independence | Clean abstraction | Both (need wrap) | — |
-| §4.2 Preserve generated_span | Must not delete | Both ✅ | — |
+| §4.2 Preserve `SyntaxFeatureUsage::span` | Must not delete | Both ✅ | — |
 | §4.3 Multiple sources per usage | Per-usage source tracking | Both (need wrap) | — |
 | §4.4 Source identity types | Virtual URL preservation | Both ✅ | — |
 | §4.5 Graceful degradation | null sourcesContent handling | Both ✅ | — |
@@ -1043,7 +1043,7 @@ use oxc_sourcemap::{SourceMap, Token, SourceViewToken, SourceMapBuilder};
    - More mature ecosystem for reactive/debug scenarios
 
 4. **Test Against Real Materials**:
-   - Verify with `/Users/10015448/Git/modb-front/dist/statics/main.d5b4492ea606.js.map`
+   - Verify with a real generated bundle map, for example `dist/statics/main.js.map`
    - Confirm 76 sources and sourcesContent handling
    - Validate webpack:// virtual URL preservation
    - Confirm optional chain syntax in sourcesContent

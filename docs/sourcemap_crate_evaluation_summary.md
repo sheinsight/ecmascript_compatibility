@@ -144,8 +144,8 @@ let token = sm.lookup_token(&table, 0, 4)?; // O(log n) per lookup
 
 Design doc (§2) includes real test material:
 ```
-/Users/10015448/Git/modb-front/dist/statics/main.d5b4492ea606.js
-/Users/10015448/Git/modb-front/dist/statics/main.d5b4492ea606.js.map
+dist/statics/main.js
+dist/statics/main.js.map
 ```
 
 **Characteristics to Verify**:
@@ -210,7 +210,7 @@ Wrap oxc_sourcemap's lookup table strategy.
 ### Phase 4: Integration (Week 4-5)
 
 **Connect to detector and checker**:
-- FeatureDetector produces `(generated_path, FeatureUsage)`
+- `SyntaxFeatureDetector` produces `SyntaxDetectionResult(path, usages)`
 - SourceMapResolver resolves references
 - SourceMapMapper converts to `OriginalLocation`
 - Checker consumes final results

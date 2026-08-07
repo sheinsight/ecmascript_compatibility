@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{env, path::Path, process::ExitCode};
 
 use ecmascript_compatibility::{
   CompatAnalyzer, CompatStatus, Runtime, RuntimeRelease, SourceMapStatus,
@@ -6,22 +6,28 @@ use ecmascript_compatibility::{
   source_map::{SourceLocation, SourceMapping},
 };
 
-const STATICS_DIR: &str = "/Users/10015448/Git/modb-front/dist/statics";
-const SAMPLE_FILE: &str = "vendors-node_modules_pnpm_mermaid_11_14_0_node_modules_mermaid_dist_chunks_mermaid_core_quadr-f24755.03e53447901e.chunk.js";
-const TARGET_QUERIES: &[&str] = &["chrome 60"];
+fn main() -> ExitCode {
+  let Some((path, target_queries)) = parse_args() else {
+    print_usage();
+    return ExitCode::from(2);
+  };
 
-fn main() {
-  let path = Path::new(STATICS_DIR).join(SAMPLE_FILE);
-  let report = CompatAnalyzer::new()
-    .analyze_path(&path, TARGET_QUERIES.iter().copied())
-    .expect("sample compatibility analysis should succeed");
+  let report = match CompatAnalyzer::new()
+    .analyze_path(&path, target_queries.iter().map(String::as_str))
+  {
+    Ok(report) => report,
+    Err(error) => {
+      eprintln!("analysis failed: {error}");
+      return ExitCode::FAILURE;
+    }
+  };
 
-  print_report_summary(&report);
+  print_report_summary(&report, &target_queries);
 
   if report.diagnostics().is_empty() {
     println!();
     println!("No compatibility diagnostics.");
-    return;
+    return ExitCode::SUCCESS;
   }
 
   println!();
@@ -43,15 +49,41 @@ fn main() {
     print_target_statuses(diagnostic.target_statuses());
     println!();
   }
+
+  ExitCode::SUCCESS
 }
 
-fn print_report_summary(report: &ecmascript_compatibility::CompatReport) {
+fn parse_args() -> Option<(std::path::PathBuf, Vec<String>)> {
+  let mut args = env::args().skip(1);
+  let path = args.next().map(std::path::PathBuf::from)?;
+  let target_queries = args.collect::<Vec<_>>();
+
+  if target_queries.is_empty() {
+    return None;
+  }
+
+  Some((path, target_queries))
+}
+
+fn print_usage() {
+  eprintln!(
+    "usage: cargo run -p ecmascript_compatibility -- <generated-js-file> <target> [target...]"
+  );
+  eprintln!(
+    r#"example: cargo run -p ecmascript_compatibility -- dist/app.js "chrome 60" "safari 13""#
+  );
+}
+
+fn print_report_summary(
+  report: &ecmascript_compatibility::CompatReport,
+  target_queries: &[String],
+) {
   let status_counts = StatusCounts::from_diagnostics(report.diagnostics());
 
-  println!("ECMAScript compatibility sample");
+  println!("ECMAScript syntax compatibility");
   println!("===============================");
-  println!("sample file      : {}", report.path().display());
-  println!("target queries   : {}", TARGET_QUERIES.join(", "));
+  println!("input file       : {}", report.path().display());
+  println!("target queries   : {}", target_queries.join(", "));
   println!(
     "resolved targets : {}",
     report
@@ -195,7 +227,9 @@ fn status_label(status: CompatStatus) -> &'static str {
 fn status_hint(status: CompatStatus) -> &'static str {
   match status {
     CompatStatus::Supported => "",
-    CompatStatus::Unsupported => "feature is not supported by this target",
+    CompatStatus::Unsupported => {
+      "syntax feature is not supported by this target"
+    }
     CompatStatus::Mixed => "target range crosses the support boundary",
     CompatStatus::Unknown => "support data is missing or not comparable",
   }
