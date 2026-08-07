@@ -1,3 +1,7 @@
+use std::path::{Path, PathBuf};
+
+use crate::source::SourceFile;
+
 use super::{
   document::{SourceMapDocument, SourceMapDocumentParseError},
   loader::{SourceMapLoadError, SourceMapLoader},
@@ -46,10 +50,31 @@ impl ResolvedSourceMap {
 ///
 /// 加载失败和文档解析失败属于不同阶段：前者说明引用不可读取，后者说明读取到的
 /// 字节不是当前支持的 Source Map 文档。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SourceMapResolveError {
+  #[error(transparent)]
+  Discovery(SourceMapDiscoveryError),
+  #[error(transparent)]
   Load(SourceMapLoadError),
+  #[error(transparent)]
   Parse(SourceMapDocumentParseError),
+}
+
+/// Source Map 引用发现失败原因。
+///
+/// 这类错误发生在读取 `.map` 文档之前，通常说明 generated 文件本身给出的
+/// `sourceMappingURL` 信息不够明确。
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum SourceMapDiscoveryError {
+  /// 文件中存在多个不同的显式 Source Map 引用，resolver 不能安全地替调用方选择。
+  #[error("ambiguous explicit source map references: {0:?}")]
+  AmbiguousExplicitReferences(Vec<String>),
+}
+
+impl From<SourceMapDiscoveryError> for SourceMapResolveError {
+  fn from(error: SourceMapDiscoveryError) -> Self {
+    Self::Discovery(error)
+  }
 }
 
 impl From<SourceMapLoadError> for SourceMapResolveError {
@@ -76,6 +101,36 @@ impl SourceMapResolver {
     Self
   }
 
+  pub fn resolve_source_file<L>(
+    &self,
+    source: &SourceFile,
+    loader: &L,
+  ) -> Result<Option<ResolvedSourceMap>, SourceMapResolveError>
+  where
+    L: SourceMapLoader,
+  {
+    if let Some(reference) = explicit_source_map_reference(source)? {
+      return self
+        .load_reference(SourceMapDiscoveryKind::Explicit, reference, loader)
+        .map(Some);
+    }
+
+    let fallback =
+      SourceMapReference::local_file(adjacent_source_map_path(source.path()));
+
+    match self.load_reference(
+      SourceMapDiscoveryKind::AdjacentFallback,
+      fallback,
+      loader,
+    ) {
+      Ok(resolved) => Ok(Some(resolved)),
+      Err(SourceMapResolveError::Load(SourceMapLoadError::NotFound(_))) => {
+        Ok(None)
+      }
+      Err(error) => Err(error),
+    }
+  }
+
   pub fn load_reference<L>(
     &self,
     discovery_kind: SourceMapDiscoveryKind,
@@ -89,6 +144,84 @@ impl SourceMapResolver {
     let document = SourceMapDocument::parse(&bytes)?;
 
     Ok(ResolvedSourceMap::new(discovery_kind, reference, document))
+  }
+}
+
+fn explicit_source_map_reference(
+  source: &SourceFile,
+) -> Result<Option<SourceMapReference>, SourceMapDiscoveryError> {
+  let mut references = source
+    .source_text()
+    .lines()
+    .filter_map(source_mapping_url)
+    .map(|url| reference_from_url(url, source.path()))
+    .collect::<Vec<_>>();
+
+  references.dedup();
+
+  match references.as_slice() {
+    [] => Ok(None),
+    [reference] => Ok(Some(reference.clone())),
+    _ => Err(SourceMapDiscoveryError::AmbiguousExplicitReferences(
+      references.iter().map(reference_label).collect(),
+    )),
+  }
+}
+
+fn source_mapping_url(line: &str) -> Option<&str> {
+  let line = line.trim();
+
+  let directive = line
+    .strip_prefix("//#")
+    .or_else(|| line.strip_prefix("//@"))
+    .or_else(|| {
+      line
+        .strip_prefix("/*#")
+        .or_else(|| line.strip_prefix("/*@"))
+        .and_then(|line| line.strip_suffix("*/"))
+    })?
+    .trim_start();
+
+  directive
+    .strip_prefix("sourceMappingURL=")
+    .map(str::trim)
+    .filter(|url| !url.is_empty())
+}
+
+fn reference_from_url(url: &str, generated_path: &Path) -> SourceMapReference {
+  if url.starts_with("data:") {
+    SourceMapReference::inline_data(url)
+      .expect("sourceMappingURL parser rejects empty values")
+  } else if url.starts_with("http://") || url.starts_with("https://") {
+    SourceMapReference::remote_url(url)
+      .expect("sourceMappingURL parser rejects empty values")
+  } else {
+    let path = PathBuf::from(url);
+    if path.is_absolute() {
+      SourceMapReference::local_file(path)
+    } else {
+      SourceMapReference::local_file(
+        generated_path
+          .parent()
+          .unwrap_or_else(|| Path::new(""))
+          .join(path),
+      )
+    }
+  }
+}
+
+fn adjacent_source_map_path(generated_path: &Path) -> PathBuf {
+  let mut path = generated_path.as_os_str().to_os_string();
+  path.push(".map");
+
+  PathBuf::from(path)
+}
+
+fn reference_label(reference: &SourceMapReference) -> String {
+  match reference {
+    SourceMapReference::InlineData(data_uri) => data_uri.clone(),
+    SourceMapReference::LocalFile(path) => path.display().to_string(),
+    SourceMapReference::RemoteUrl(url) => url.clone(),
   }
 }
 
@@ -132,6 +265,159 @@ mod tests {
     ) -> Result<Vec<u8>, SourceMapLoadError> {
       Ok(br#"{"version":2,"sources":[],"names":[],"mappings":""}"#.to_vec())
     }
+  }
+
+  struct MissingLoader;
+
+  impl SourceMapLoader for MissingLoader {
+    fn load(
+      &self,
+      reference: &SourceMapReference,
+    ) -> Result<Vec<u8>, SourceMapLoadError> {
+      match reference {
+        SourceMapReference::LocalFile(path) => {
+          Err(SourceMapLoadError::NotFound(path.clone()))
+        }
+        SourceMapReference::InlineData(_)
+        | SourceMapReference::RemoteUrl(_) => Ok(valid_source_map().to_vec()),
+      }
+    }
+  }
+
+  struct ExpectingLoader {
+    expected: SourceMapReference,
+  }
+
+  impl SourceMapLoader for ExpectingLoader {
+    fn load(
+      &self,
+      reference: &SourceMapReference,
+    ) -> Result<Vec<u8>, SourceMapLoadError> {
+      assert_eq!(reference, &self.expected);
+
+      Ok(valid_source_map().to_vec())
+    }
+  }
+
+  #[test]
+  fn resolve_source_file_loads_an_explicit_relative_reference() {
+    let source = SourceFile::javascript(
+      "dist/app.js",
+      "console.log(1);\n//# sourceMappingURL=app.js.map",
+    );
+
+    let resolved = SourceMapResolver::new()
+      .resolve_source_file(
+        &source,
+        &ExpectingLoader {
+          expected: SourceMapReference::local_file("dist/app.js.map"),
+        },
+      )
+      .unwrap()
+      .expect("explicit source map should be resolved");
+
+    assert_eq!(resolved.discovery_kind(), SourceMapDiscoveryKind::Explicit);
+    assert_eq!(
+      resolved.reference(),
+      &SourceMapReference::local_file("dist/app.js.map"),
+    );
+  }
+
+  #[test]
+  fn resolve_source_file_loads_an_inline_data_uri_reference() {
+    let source = SourceFile::javascript(
+      "dist/app.js",
+      "console.log(1);\n//# sourceMappingURL=data:application/json,%7B%7D",
+    );
+
+    let resolved = SourceMapResolver::new()
+      .resolve_source_file(
+        &source,
+        &ExpectingLoader {
+          expected: SourceMapReference::inline_data(
+            "data:application/json,%7B%7D",
+          )
+          .unwrap(),
+        },
+      )
+      .unwrap()
+      .expect("inline source map should be resolved");
+
+    assert_eq!(resolved.discovery_kind(), SourceMapDiscoveryKind::Explicit);
+  }
+
+  #[test]
+  fn resolve_source_file_uses_adjacent_fallback_without_explicit_reference() {
+    let source = SourceFile::javascript("dist/app.js", "console.log(1);");
+
+    let resolved = SourceMapResolver::new()
+      .resolve_source_file(
+        &source,
+        &ExpectingLoader {
+          expected: SourceMapReference::local_file("dist/app.js.map"),
+        },
+      )
+      .unwrap()
+      .expect("fallback source map should be resolved");
+
+    assert_eq!(
+      resolved.discovery_kind(),
+      SourceMapDiscoveryKind::AdjacentFallback,
+    );
+    assert_eq!(
+      resolved.reference(),
+      &SourceMapReference::local_file("dist/app.js.map"),
+    );
+  }
+
+  #[test]
+  fn resolve_source_file_treats_missing_fallback_as_absent_source_map() {
+    let source = SourceFile::javascript("dist/app.js", "console.log(1);");
+
+    let resolved = SourceMapResolver::new()
+      .resolve_source_file(&source, &MissingLoader)
+      .unwrap();
+
+    assert_eq!(resolved.is_none(), true);
+  }
+
+  #[test]
+  fn resolve_source_file_reports_missing_explicit_reference_as_load_error() {
+    let source = SourceFile::javascript(
+      "dist/app.js",
+      "console.log(1);\n//# sourceMappingURL=missing.js.map",
+    );
+
+    let result =
+      SourceMapResolver::new().resolve_source_file(&source, &MissingLoader);
+
+    assert_eq!(
+      result.unwrap_err(),
+      SourceMapResolveError::Load(SourceMapLoadError::NotFound(PathBuf::from(
+        "dist/missing.js.map"
+      ),)),
+    );
+  }
+
+  #[test]
+  fn resolve_source_file_rejects_conflicting_explicit_references() {
+    let source = SourceFile::javascript(
+      "dist/app.js",
+      "//# sourceMappingURL=one.js.map\n//# sourceMappingURL=two.js.map",
+    );
+
+    let result =
+      SourceMapResolver::new().resolve_source_file(&source, &StaticLoader);
+
+    assert_eq!(
+      result.unwrap_err(),
+      SourceMapResolveError::Discovery(
+        SourceMapDiscoveryError::AmbiguousExplicitReferences(vec![
+          "dist/one.js.map".to_string(),
+          "dist/two.js.map".to_string(),
+        ]),
+      ),
+    );
   }
 
   #[test]

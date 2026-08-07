@@ -5,7 +5,9 @@ mod runtime;
 mod runtime_target;
 mod version;
 
+pub use query::TargetQuery;
 pub use release::RuntimeRelease;
+pub use resolver::TargetResolver;
 pub use runtime::Runtime;
 pub use runtime_target::RuntimeTarget;
 pub use version::{InvalidVersionRange, Version, VersionRange};

@@ -24,7 +24,7 @@ impl CompatDatabase {
   }
 }
 
-// Source: MDN Browser Compatibility Data, optional chaining operator.
+// Source: MDN Browser Compat Data, optional chaining operator.
 // Only explicit `version_added` entries are encoded here. Entries marked as
 // `mirror` remain unknown until runtime-version inheritance is normalized.
 // https://github.com/mdn/browser-compat-data/blob/main/javascript/operators/optional_chaining.json

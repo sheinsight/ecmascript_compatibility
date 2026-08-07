@@ -6,6 +6,7 @@ use crate::error::TargetResolveError;
 
 use super::{Runtime, RuntimeRelease, RuntimeTarget, query::TargetQuery};
 
+#[derive(Debug, Default, Clone, Copy)]
 pub struct TargetResolver;
 
 impl TargetResolver {

@@ -18,7 +18,7 @@ pub enum SourceMapping {
 
 /// Source Map 不可用或无法完成映射的结构化原因。
 ///
-/// 这些状态都不应让兼容性 finding 消失；调用方应保留产物位置，并按需要展示
+/// 这些状态都不应让兼容性 diagnostic 消失；调用方应保留产物位置，并按需要展示
 /// 对应的降级原因。
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SourceMapUnavailable {

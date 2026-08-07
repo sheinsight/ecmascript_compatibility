@@ -62,14 +62,6 @@ impl FeatureUsage {
   pub const fn source_mapping(&self) -> &SourceMapping {
     &self.source_mapping
   }
-
-  pub(crate) fn with_source_mapping(
-    mut self,
-    source_mapping: SourceMapping,
-  ) -> Self {
-    self.source_mapping = source_mapping;
-    self
-  }
 }
 
 #[cfg(test)]
