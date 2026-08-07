@@ -1,3 +1,4 @@
+mod discovery;
 mod document;
 mod loader;
 mod resolver;
@@ -8,14 +9,16 @@ mod source_map_reference;
 mod source_mapping;
 mod source_position;
 
+pub use discovery::{
+  DiscoveredSourceMap, SourceMapDiscovery, SourceMapDiscoveryError,
+};
 pub use document::{SourceMapDocument, SourceMapDocumentParseError};
 pub use loader::{
   DataUriSourceMapLoader, DefaultSourceMapLoader, FileSourceMapLoader,
   SourceMapLoadError, SourceMapLoader,
 };
 pub use resolver::{
-  ResolvedSourceMap, SourceMapDiscoveryError, SourceMapResolveError,
-  SourceMapResolver,
+  ResolvedSourceMap, SourceMapResolveError, SourceMapResolver,
 };
 pub use source_identity::SourceIdentity;
 pub use source_location::SourceLocation;
