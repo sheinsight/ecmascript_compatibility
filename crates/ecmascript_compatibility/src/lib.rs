@@ -9,8 +9,8 @@ pub mod source_map;
 pub mod target;
 
 pub use analyzer::{
-  CompatAnalysisError, CompatAnalyzer, CompatDiagnostic, CompatReport,
-  SourceMapStatus, TargetCompatStatus,
+  CompatAnalysisError, CompatAnalyzer, CompatAnalyzerBuilder, CompatDiagnostic,
+  CompatReport, SourceMapStatus, TargetCompatStatus,
 };
 pub use checker::{CompatStatus, evaluate};
 pub use database::{CompatDatabase, SupportRule};

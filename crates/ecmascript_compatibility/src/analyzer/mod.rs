@@ -1,3 +1,4 @@
+mod builder;
 mod diagnostic;
 mod error;
 mod generated_source_index;
@@ -5,6 +6,7 @@ mod report;
 
 use std::{fs, path::Path};
 
+pub use builder::CompatAnalyzerBuilder;
 pub use diagnostic::{CompatDiagnostic, TargetCompatStatus};
 pub use error::CompatAnalysisError;
 pub use report::{CompatReport, SourceMapStatus};
@@ -13,8 +15,8 @@ use crate::{
   CompatDatabase, CompatStatus, FeatureDetector, SourceFile, TargetQuery,
   TargetResolver, evaluate,
   source_map::{
-    DefaultSourceMapLoader, SourceMapDiscoveryError, SourceMapResolveError,
-    SourceMapResolver, SourceMapUnavailable,
+    DefaultSourceMapLoader, SourceMapDiscoveryError, SourceMapLoader,
+    SourceMapResolveError, SourceMapResolver, SourceMapUnavailable,
   },
 };
 
@@ -24,20 +26,52 @@ use generated_source_index::GeneratedSourceIndex;
 ///
 /// 调用方只需要提供源文件和目标运行时查询；内部会完成特性检测、Source Map 回源
 /// 和兼容性规则评估。底层模块仍然保留，但常规使用不需要手动拼接这些步骤。
-#[derive(Debug, Default, Clone)]
-pub struct CompatAnalyzer {
+#[derive(Debug, Clone)]
+pub struct CompatAnalyzer<L = DefaultSourceMapLoader> {
   detector: FeatureDetector,
   database: CompatDatabase,
   target_resolver: TargetResolver,
   source_map_resolver: SourceMapResolver,
-  source_map_loader: DefaultSourceMapLoader,
+  source_map_loader: L,
+  include_supported_targets: bool,
 }
 
-impl CompatAnalyzer {
+impl CompatAnalyzer<DefaultSourceMapLoader> {
   pub fn new() -> Self {
     Self::default()
   }
 
+  pub fn builder() -> CompatAnalyzerBuilder {
+    CompatAnalyzerBuilder::default()
+  }
+}
+
+impl Default for CompatAnalyzer<DefaultSourceMapLoader> {
+  fn default() -> Self {
+    Self::builder().build()
+  }
+}
+
+impl<L> CompatAnalyzer<L> {
+  pub(crate) fn from_parts(
+    source_map_loader: L,
+    include_supported_targets: bool,
+  ) -> Self {
+    Self {
+      detector: FeatureDetector::new(),
+      database: CompatDatabase::new(),
+      target_resolver: TargetResolver,
+      source_map_resolver: SourceMapResolver::new(),
+      source_map_loader,
+      include_supported_targets,
+    }
+  }
+}
+
+impl<L> CompatAnalyzer<L>
+where
+  L: SourceMapLoader,
+{
   /// 从文件系统读取并分析一个源文件或构建产物文件。
   ///
   /// Source Map 会按 `sourceMappingURL` 或同名 `.map` 文件自动发现；找不到
@@ -126,9 +160,10 @@ impl CompatAnalyzer {
         let status = evaluate(rule, target.release());
 
         // Report 默认只记录需要调用方关注的状态：
-        // Unsupported、Mixed 和 Unknown。明确 Supported 的 target 仍保留在
-        // report.targets() 中，但不进入单条 diagnostic，避免诊断结果被正常状态淹没。
-        if status == CompatStatus::Supported {
+        // Unsupported、Mixed 和 Unknown。`include_supported_targets` 打开后，
+        // diagnostic 会保留完整 target 矩阵，适合调试和报表场景。
+        if status == CompatStatus::Supported && !self.include_supported_targets
+        {
           continue;
         }
 
@@ -244,6 +279,7 @@ fn adjacent_source_map_path(source_path: &Path) -> std::path::PathBuf {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::source_map::{SourceMapLoadError, SourceMapReference};
 
   #[test]
   fn analyzes_source_and_returns_non_supported_diagnostics() {
@@ -271,6 +307,58 @@ mod tests {
       .unwrap();
 
     assert!(report.diagnostics().is_empty());
+  }
+
+  #[test]
+  fn can_include_supported_targets_in_diagnostics() {
+    let source = SourceFile::javascript("input.js", "const name = user?.name;");
+
+    let report = CompatAnalyzer::builder()
+      .include_supported_targets(true)
+      .build()
+      .analyze_source(source, ["chrome 80"])
+      .unwrap();
+
+    assert_eq!(report.diagnostics().len(), 1);
+    assert_eq!(
+      report.diagnostics()[0].target_statuses()[0].status(),
+      CompatStatus::Supported,
+    );
+  }
+
+  #[test]
+  fn can_use_a_custom_source_map_loader() {
+    struct StaticSourceMapLoader;
+
+    impl SourceMapLoader for StaticSourceMapLoader {
+      fn load(
+        &self,
+        _reference: &SourceMapReference,
+      ) -> Result<Vec<u8>, SourceMapLoadError> {
+        Ok(
+          br#"{
+            "version":3,
+            "sources":["src/input.ts"],
+            "names":[],
+            "mappings":"AAAA"
+          }"#
+            .to_vec(),
+        )
+      }
+    }
+
+    let source = SourceFile::javascript("dist/input.js", "user?.name;");
+
+    let report = CompatAnalyzer::builder()
+      .source_map_loader(StaticSourceMapLoader)
+      .build()
+      .analyze_source(source, ["chrome 79"])
+      .unwrap();
+
+    assert!(matches!(
+      report.source_map_status(),
+      SourceMapStatus::Resolved { .. },
+    ));
   }
 
   #[test]
