@@ -4,16 +4,21 @@ mod error;
 mod generated_source_index;
 mod report;
 
-use std::{fs, path::Path};
+use std::{
+  fs,
+  path::Path,
+  time::{Duration, Instant},
+};
 
 pub use builder::CompatAnalyzerBuilder;
 pub use diagnostic::{CompatDiagnostic, TargetCompatStatus};
 pub use error::CompatAnalysisError;
-pub use report::{CompatReport, SourceMapStatus};
+pub use report::{CompatAnalysisTiming, CompatReport, SourceMapStatus};
 
 use crate::{
-  CompatStatus, RuntimeTarget, SourceFile, SyntaxCompatDatabase,
-  SyntaxFeatureDetector, TargetQuery, TargetResolver, evaluate,
+  CompatStatus, RuntimeTarget, SourceFile, SourceSpan, SyntaxCompatDatabase,
+  SyntaxFeatureDetector, SyntaxFeatureId, TargetQuery, TargetResolver,
+  evaluate,
   source_map::{
     DefaultSourceMapLoader, SourceMapDiscoveryError, SourceMapLoader,
     SourceMapResolveError, SourceMapResolver, SourceMapUnavailable,
@@ -83,6 +88,7 @@ where
     targets: &[RuntimeTarget],
   ) -> Result<CompatReport, CompatAnalysisError> {
     let path = path.as_ref();
+    let read_started_at = Instant::now();
     let source_text = fs::read_to_string(path).map_err(|source| {
       CompatAnalysisError::ReadSource {
         path: path.to_path_buf(),
@@ -90,8 +96,9 @@ where
       }
     })?;
     let source = SourceFile::from_path(path.to_path_buf(), source_text)?;
+    let read = read_started_at.elapsed();
 
-    self.analyze_source(source, targets)
+    self.analyze_source_with_read_timing(source, targets, read)
   }
 
   /// 解析 target 查询，供需要批量分析多个文件的调用方复用结果。
@@ -122,12 +129,23 @@ where
     source: SourceFile,
     targets: &[RuntimeTarget],
   ) -> Result<CompatReport, CompatAnalysisError> {
+    self.analyze_source_with_read_timing(source, targets, Duration::ZERO)
+  }
+
+  fn analyze_source_with_read_timing(
+    &self,
+    source: SourceFile,
+    targets: &[RuntimeTarget],
+    read: Duration,
+  ) -> Result<CompatReport, CompatAnalysisError> {
+    let parse_detect_started_at = Instant::now();
     let detection = self.detector.detect(&source)?;
-    let source_index = GeneratedSourceIndex::new(source.source_text());
+    let parse_detect = parse_detect_started_at.elapsed();
 
     // Source Map 是报告的增强信息，不是兼容性检测成立的前提。
     // 因此 resolver 的结果先被折叠成文件级 `SourceMapStatus`，后面每条 usage
     // 再根据这个状态决定是映射到 original source，还是保留 generated 位置并说明降级原因。
+    let source_map_started_at = Instant::now();
     let source_map_result = self
       .source_map_resolver
       .resolve_source_file(&source, &self.source_map_loader);
@@ -135,32 +153,14 @@ where
       source_map_status(source.path(), &source_map_result);
     let resolved_source_map =
       source_map_result.as_ref().ok().and_then(Option::as_ref);
+    let mut source_map = source_map_started_at.elapsed();
 
     let mut diagnostics = Vec::new();
+    let mut target_evaluate = Duration::ZERO;
+    let mut pending_diagnostics = Vec::new();
 
     for usage in detection.usages() {
-      let generated_position =
-        source_index.position_for_offset(usage.span().start());
-
-      // syntax detector 给出的是 byte span；Source Map 查询需要零基 UTF-16 行列。
-      // 这里用 span 起点作为 diagnostic 的主要定位点，span 本身仍保留在结果里。
-      let source_mapping = resolved_source_map
-        .as_ref()
-        .and_then(|resolved| resolved.document().lookup(generated_position))
-        .map_or_else(
-          || {
-            source_map_status.unavailable_reason().cloned().map_or_else(
-              || {
-                SourceMapUnavailableOrLocation::Unavailable(
-                  SourceMapUnavailable::UnmappedPosition,
-                )
-              },
-              SourceMapUnavailableOrLocation::Unavailable,
-            )
-          },
-          SourceMapUnavailableOrLocation::Location,
-        );
-
+      let target_evaluate_started_at = Instant::now();
       let mut target_statuses = Vec::new();
 
       for target in targets {
@@ -179,19 +179,61 @@ where
 
         target_statuses.push(TargetCompatStatus::new(*target, status));
       }
+      target_evaluate += target_evaluate_started_at.elapsed();
 
       if !target_statuses.is_empty() {
-        // 一条 diagnostic 对应一个 syntax feature usage。多个 target 的结果聚合在
-        // `target_statuses` 中，避免把 usage × target 展开成重复诊断。
-        diagnostics.push(CompatDiagnostic::new(
+        pending_diagnostics.push(PendingDiagnostic::new(
           usage.feature(),
-          detection.path().to_path_buf(),
           usage.span(),
-          generated_position,
-          source_mapping.into_source_mapping(),
           target_statuses,
         ));
       }
+    }
+
+    let generated_position_started_at = Instant::now();
+    let source_index = GeneratedSourceIndex::new(source.source_text());
+    let generated_offsets = pending_diagnostics
+      .iter()
+      .map(|diagnostic| diagnostic.span.start())
+      .collect::<Vec<_>>();
+    let generated_positions =
+      source_index.positions_for_offsets(&generated_offsets);
+    let generated_position = generated_position_started_at.elapsed();
+
+    for (pending, generated_position) in
+      pending_diagnostics.into_iter().zip(generated_positions)
+    {
+      // syntax detector 给出的是 byte span；Source Map 查询需要零基 UTF-16 行列。
+      // 这里用 span 起点作为 diagnostic 的主要定位点，span 本身仍保留在结果里。
+      let source_map_lookup_started_at = Instant::now();
+      let source_mapping = resolved_source_map
+        .as_ref()
+        .and_then(|resolved| resolved.document().lookup(generated_position))
+        .map_or_else(
+          || {
+            source_map_status.unavailable_reason().cloned().map_or_else(
+              || {
+                SourceMapUnavailableOrLocation::Unavailable(
+                  SourceMapUnavailable::UnmappedPosition,
+                )
+              },
+              SourceMapUnavailableOrLocation::Unavailable,
+            )
+          },
+          SourceMapUnavailableOrLocation::Location,
+        );
+      source_map += source_map_lookup_started_at.elapsed();
+
+      // 一条 diagnostic 对应一个 syntax feature usage。多个 target 的结果聚合在
+      // `target_statuses` 中，避免把 usage × target 展开成重复诊断。
+      diagnostics.push(CompatDiagnostic::new(
+        pending.feature,
+        detection.path().to_path_buf(),
+        pending.span,
+        generated_position,
+        source_mapping.into_source_mapping(),
+        pending.target_statuses,
+      ));
     }
 
     Ok(CompatReport::new(
@@ -200,7 +242,35 @@ where
       detection.usages().len(),
       source_map_status,
       diagnostics,
+      CompatAnalysisTiming::new(
+        read,
+        parse_detect,
+        generated_position,
+        source_map,
+        target_evaluate,
+      ),
     ))
+  }
+}
+
+#[derive(Debug)]
+struct PendingDiagnostic {
+  feature: SyntaxFeatureId,
+  span: SourceSpan,
+  target_statuses: Vec<TargetCompatStatus>,
+}
+
+impl PendingDiagnostic {
+  fn new(
+    feature: SyntaxFeatureId,
+    span: SourceSpan,
+    target_statuses: Vec<TargetCompatStatus>,
+  ) -> Self {
+    Self {
+      feature,
+      span,
+      target_statuses,
+    }
   }
 }
 

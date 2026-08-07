@@ -34,6 +34,7 @@ export interface JsCompatDirectoryReport {
   reports: Array<JsCompatFileReport>
   errors: Array<JsCompatFileError>
   skipped: Array<JsSkippedFile>
+  timing: JsDirectoryTiming
 }
 
 export interface JsCompatFileError {
@@ -47,6 +48,26 @@ export interface JsCompatFileReport {
   detectedUsageCount: number
   sourceMapStatus: JsSourceMapStatus
   diagnostics: Array<JsCompatDiagnostic>
+  timing: JsFileTiming
+}
+
+export interface JsDirectoryTiming {
+  elapsedMs: number
+  readMs: number
+  parseDetectMs: number
+  generatedPositionMs: number
+  sourceMapMs: number
+  targetEvaluateMs: number
+  dtoConversionMs: number
+}
+
+export interface JsFileTiming {
+  readMs: number
+  parseDetectMs: number
+  generatedPositionMs: number
+  sourceMapMs: number
+  targetEvaluateMs: number
+  dtoConversionMs: number
 }
 
 export interface JsRuntimeTarget {

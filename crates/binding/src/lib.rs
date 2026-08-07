@@ -1,6 +1,7 @@
 use std::{
   fs,
   path::{Path, PathBuf},
+  time::{Duration, Instant},
 };
 
 use ecmascript_compatibility::{
@@ -42,6 +43,7 @@ pub struct JsCompatDirectoryReport {
   pub reports: Vec<JsCompatFileReport>,
   pub errors: Vec<JsCompatFileError>,
   pub skipped: Vec<JsSkippedFile>,
+  pub timing: JsDirectoryTiming,
 }
 
 #[napi(object)]
@@ -63,6 +65,28 @@ pub struct JsCompatFileReport {
   pub detected_usage_count: u32,
   pub source_map_status: JsSourceMapStatus,
   pub diagnostics: Vec<JsCompatDiagnostic>,
+  pub timing: JsFileTiming,
+}
+
+#[napi(object)]
+pub struct JsDirectoryTiming {
+  pub elapsed_ms: f64,
+  pub read_ms: f64,
+  pub parse_detect_ms: f64,
+  pub generated_position_ms: f64,
+  pub source_map_ms: f64,
+  pub target_evaluate_ms: f64,
+  pub dto_conversion_ms: f64,
+}
+
+#[napi(object)]
+pub struct JsFileTiming {
+  pub read_ms: f64,
+  pub parse_detect_ms: f64,
+  pub generated_position_ms: f64,
+  pub source_map_ms: f64,
+  pub target_evaluate_ms: f64,
+  pub dto_conversion_ms: f64,
 }
 
 #[napi(object)]
@@ -123,6 +147,7 @@ pub fn analyze_cwd(
   targets: Vec<String>,
   options: Option<AnalyzeCwdOptions>,
 ) -> Result<JsCompatDirectoryReport> {
+  let elapsed_started_at = Instant::now();
   let cwd = normalize_cwd(cwd)?;
   let extensions = options
     .as_ref()
@@ -149,6 +174,7 @@ pub fn analyze_cwd(
       &targets,
       parallelism,
       max_file_size_bytes,
+      elapsed_started_at,
       &analyzer_from_options(include_supported_targets),
     )
   } else {
@@ -158,6 +184,7 @@ pub fn analyze_cwd(
       &targets,
       parallelism,
       max_file_size_bytes,
+      elapsed_started_at,
       &analyzer_without_source_maps(include_supported_targets),
     )
   }
@@ -169,6 +196,7 @@ fn analyze_cwd_with_analyzer<L>(
   targets: &[String],
   parallelism: Option<u32>,
   max_file_size_bytes: Option<u32>,
+  elapsed_started_at: Instant,
   analyzer: &CompatAnalyzer<L>,
 ) -> Result<JsCompatDirectoryReport>
 where
@@ -207,6 +235,8 @@ where
     .iter()
     .map(|report: &JsCompatFileReport| report.diagnostics.len() as u32)
     .sum();
+  let timing =
+    JsDirectoryTiming::from_reports(elapsed_started_at.elapsed(), &reports);
 
   Ok(JsCompatDirectoryReport {
     cwd: path_label(cwd),
@@ -216,6 +246,7 @@ where
     reports,
     errors,
     skipped,
+    timing,
   })
 }
 
@@ -230,7 +261,9 @@ where
   files
     .par_iter()
     .map(|path| match analyzer.analyze_path(path, targets) {
-      Ok(report) => FileAnalysisEntry::Report(report.into()),
+      Ok(report) => {
+        FileAnalysisEntry::Report(JsCompatFileReport::from_report(report))
+      }
       Err(error) => FileAnalysisEntry::Error(JsCompatFileError {
         path: path_label(path),
         message: error.to_string(),
@@ -292,7 +325,7 @@ pub fn analyze_path(
 
     analyzer
       .analyze_path(path, &resolved_targets)
-      .map(Into::into)
+      .map(JsCompatFileReport::from_report)
       .map_err(to_napi_error)
   } else {
     let analyzer = analyzer_without_source_maps(include_supported_targets);
@@ -302,7 +335,7 @@ pub fn analyze_path(
 
     analyzer
       .analyze_path(path, &resolved_targets)
-      .map(Into::into)
+      .map(JsCompatFileReport::from_report)
       .map_err(to_napi_error)
   }
 }
@@ -430,9 +463,12 @@ fn normalize_extensions(extensions: &[String]) -> Vec<String> {
   }
 }
 
-impl From<CompatReport> for JsCompatFileReport {
-  fn from(report: CompatReport) -> Self {
-    Self {
+impl JsCompatFileReport {
+  fn from_report(report: CompatReport) -> Self {
+    let dto_conversion_started_at = Instant::now();
+    let timing = report.timing();
+
+    let mut converted = Self {
       path: path_label(report.path()),
       targets: report.targets().iter().copied().map(Into::into).collect(),
       detected_usage_count: report.detected_usage_count() as u32,
@@ -442,6 +478,47 @@ impl From<CompatReport> for JsCompatFileReport {
         .iter()
         .map(JsCompatDiagnostic::from)
         .collect(),
+      timing: JsFileTiming {
+        read_ms: duration_ms(timing.read()),
+        parse_detect_ms: duration_ms(timing.parse_detect()),
+        generated_position_ms: duration_ms(timing.generated_position()),
+        source_map_ms: duration_ms(timing.source_map()),
+        target_evaluate_ms: duration_ms(timing.target_evaluate()),
+        dto_conversion_ms: 0.0,
+      },
+    };
+
+    converted.timing.dto_conversion_ms =
+      duration_ms(dto_conversion_started_at.elapsed());
+    converted
+  }
+}
+
+impl JsDirectoryTiming {
+  fn from_reports(elapsed: Duration, reports: &[JsCompatFileReport]) -> Self {
+    Self {
+      elapsed_ms: duration_ms(elapsed),
+      read_ms: reports.iter().map(|report| report.timing.read_ms).sum(),
+      parse_detect_ms: reports
+        .iter()
+        .map(|report| report.timing.parse_detect_ms)
+        .sum(),
+      generated_position_ms: reports
+        .iter()
+        .map(|report| report.timing.generated_position_ms)
+        .sum(),
+      source_map_ms: reports
+        .iter()
+        .map(|report| report.timing.source_map_ms)
+        .sum(),
+      target_evaluate_ms: reports
+        .iter()
+        .map(|report| report.timing.target_evaluate_ms)
+        .sum(),
+      dto_conversion_ms: reports
+        .iter()
+        .map(|report| report.timing.dto_conversion_ms)
+        .sum(),
     }
   }
 }
@@ -622,4 +699,8 @@ fn path_label(path: &Path) -> String {
 
 fn to_napi_error(error: impl std::error::Error) -> Error {
   Error::new(Status::GenericFailure, error.to_string())
+}
+
+fn duration_ms(duration: Duration) -> f64 {
+  duration.as_secs_f64() * 1000.0
 }

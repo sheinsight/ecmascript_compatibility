@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use crate::{
   source_map::{
@@ -8,6 +9,54 @@ use crate::{
 };
 
 use super::CompatDiagnostic;
+
+/// 单文件分析各阶段耗时。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CompatAnalysisTiming {
+  read: Duration,
+  parse_detect: Duration,
+  generated_position: Duration,
+  source_map: Duration,
+  target_evaluate: Duration,
+}
+
+impl CompatAnalysisTiming {
+  pub(crate) const fn new(
+    read: Duration,
+    parse_detect: Duration,
+    generated_position: Duration,
+    source_map: Duration,
+    target_evaluate: Duration,
+  ) -> Self {
+    Self {
+      read,
+      parse_detect,
+      generated_position,
+      source_map,
+      target_evaluate,
+    }
+  }
+
+  pub const fn read(self) -> Duration {
+    self.read
+  }
+
+  pub const fn parse_detect(self) -> Duration {
+    self.parse_detect
+  }
+
+  pub const fn generated_position(self) -> Duration {
+    self.generated_position
+  }
+
+  pub const fn source_map(self) -> Duration {
+    self.source_map
+  }
+
+  pub const fn target_evaluate(self) -> Duration {
+    self.target_evaluate
+  }
+}
 
 /// Source Map 在一次分析中的整体状态。
 ///
@@ -45,6 +94,8 @@ pub struct CompatReport {
   source_map_status: SourceMapStatus,
   /// 需要调用方关注的兼容性诊断。
   diagnostics: Vec<CompatDiagnostic>,
+  /// 单文件分析阶段耗时。
+  timing: CompatAnalysisTiming,
 }
 
 impl CompatReport {
@@ -54,6 +105,7 @@ impl CompatReport {
     detected_usage_count: usize,
     source_map_status: SourceMapStatus,
     diagnostics: Vec<CompatDiagnostic>,
+    timing: CompatAnalysisTiming,
   ) -> Self {
     Self {
       path,
@@ -61,6 +113,7 @@ impl CompatReport {
       detected_usage_count,
       source_map_status,
       diagnostics,
+      timing,
     }
   }
 
@@ -82,6 +135,10 @@ impl CompatReport {
 
   pub fn diagnostics(&self) -> &[CompatDiagnostic] {
     &self.diagnostics
+  }
+
+  pub const fn timing(&self) -> CompatAnalysisTiming {
+    self.timing
   }
 
   pub fn unsupported_diagnostics(
