@@ -320,8 +320,8 @@ mod tests {
       result.unwrap_err(),
       SourceMapResolveError::Discovery(
         SourceMapDiscoveryError::AmbiguousExplicitReferences(vec![
-          "dist/one.js.map".to_string(),
-          "dist/two.js.map".to_string(),
+          PathBuf::from("dist/one.js.map").display().to_string(),
+          PathBuf::from("dist/two.js.map").display().to_string(),
         ]),
       ),
     );

@@ -197,8 +197,8 @@ mod tests {
     assert_eq!(
       result.unwrap_err(),
       SourceMapDiscoveryError::AmbiguousExplicitReferences(vec![
-        "dist/one.js.map".to_string(),
-        "dist/two.js.map".to_string(),
+        PathBuf::from("dist/one.js.map").display().to_string(),
+        PathBuf::from("dist/two.js.map").display().to_string(),
       ]),
     );
   }
