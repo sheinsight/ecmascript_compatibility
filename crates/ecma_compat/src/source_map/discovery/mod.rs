@@ -3,6 +3,8 @@ mod result;
 
 use std::path::{Path, PathBuf};
 
+use path_slash::PathExt;
+
 pub use error::SourceMapDiscoveryError;
 pub use result::DiscoveredSourceMap;
 
@@ -116,7 +118,9 @@ fn adjacent_source_map_path(generated_path: &Path) -> PathBuf {
 fn reference_label(reference: &SourceMapReference) -> String {
   match reference {
     SourceMapReference::InlineData(data_uri) => data_uri.clone(),
-    SourceMapReference::LocalFile(path) => path.display().to_string(),
+    SourceMapReference::LocalFile(path) => {
+      path.to_slash_lossy().into_owned()
+    }
     SourceMapReference::RemoteUrl(url) => url.clone(),
   }
 }

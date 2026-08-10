@@ -12,6 +12,7 @@ ecma_compat = { workspace = true }
 napi = { workspace = true }
 napi-derive = { workspace = true }
 rayon = { workspace = true }
+path-slash = { workspace = true }
 
 [build-dependencies]
 napi-build = { workspace = true }

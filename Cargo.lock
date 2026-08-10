@@ -252,6 +252,7 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
+ "path-slash",
  "rayon",
 ]
 

@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use path_slash::PathExt;
+
 /// resolver 归一化后的 Source Map 文档引用。
 ///
 /// 这里描述"Source Map 文件/文档在哪里"，例如 `dist/main.js.map` 或内联
@@ -20,24 +22,14 @@ impl SourceMapReference {
     non_empty(data_uri.into()).map(Self::InlineData)
   }
 
+  /// 构造本地文件引用，路径统一规范化为 `/` 分隔符。
   pub fn local_file(path: impl Into<PathBuf>) -> Self {
-    Self::LocalFile(normalize_path(path.into()))
+    let path = path.into();
+    Self::LocalFile(PathBuf::from(path.to_slash_lossy().as_ref()))
   }
 
   pub fn remote_url(url: impl Into<String>) -> Option<Self> {
     non_empty(url.into()).map(Self::RemoteUrl)
-  }
-}
-
-/// 将路径分隔符统一为 `/`，确保跨平台一致性。
-///
-/// Source Map 规范使用 URL 风格路径，因此无论宿主平台如何，
-/// 存储和输出的路径始终使用 `/`。
-fn normalize_path(path: PathBuf) -> PathBuf {
-  if cfg!(windows) {
-    PathBuf::from(path.to_string_lossy().replace('\\', "/"))
-  } else {
-    path
   }
 }
 
@@ -64,10 +56,11 @@ mod tests {
   }
 
   #[test]
-  fn normalizes_backslashes_in_local_file_paths() {
-    let reference = SourceMapReference::local_file(PathBuf::from(
-      if cfg!(windows) { r"dist\app.js.map" } else { "dist/app.js.map" },
-    ));
+  fn normalizes_platform_separators_in_local_file_paths() {
+    // 在 Windows 上 Path::join 会产出 `\`，to_slash_lossy 将其转为 `/`。
+    // 在 Unix 上 Path::join 只产出 `/`，无需转换。
+    let joined = std::path::Path::new("dist").join("app.js.map");
+    let reference = SourceMapReference::local_file(joined);
     assert_eq!(
       reference,
       SourceMapReference::LocalFile(PathBuf::from("dist/app.js.map")),

@@ -4,6 +4,8 @@ use std::{
   time::{Duration, Instant},
 };
 
+use path_slash::PathExt;
+
 use ecma_compat::{
   CompatAnalysisTiming, CompatAnalyzer, CompatDiagnostic, CompatReport,
   CompatStatus, Runtime, RuntimeRelease, RuntimeTarget, SourceMapStatus,
@@ -285,7 +287,7 @@ fn normalize_cwd(cwd: String) -> Result<PathBuf> {
   if !metadata.is_dir() {
     return Err(Error::new(
       Status::InvalidArg,
-      format!("cwd is not a directory: `{}`", path.display()),
+      format!("cwd is not a directory: `{}`", path.to_slash_lossy()),
     ));
   }
 
@@ -623,7 +625,7 @@ fn status_label(status: CompatStatus) -> &'static str {
 }
 
 fn path_label(path: &Path) -> String {
-  path.display().to_string()
+  path.to_slash_lossy().into_owned()
 }
 
 fn to_napi_error(error: impl std::error::Error) -> Error {
