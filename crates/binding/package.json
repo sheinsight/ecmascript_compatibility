@@ -28,10 +28,12 @@
 		"artifacts": "napi artifacts",
     "build:js": "napi build --platform --js index.js --dts index.d.ts",
 		"build": "napi build --platform --release",
-		"build:debug": "napi build --platform"
+		"build:debug": "napi build --platform",
+    "prepack": "clean-pkg-json"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.3.1"
+    "@napi-rs/cli": "^3.3.1",
+    "clean-pkg-json": "^2.0.0"
   },
   "license": "MIT"
 }

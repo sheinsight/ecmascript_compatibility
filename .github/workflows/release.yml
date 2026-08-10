@@ -1,0 +1,131 @@
+name: Release
+env:
+  DEBUG: napi:*
+  # 如果没有的话 napi prepublish 会报错
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # MACOSX_DEPLOYMENT_TARGET: '10.13'
+  # CARGO_INCREMENTAL: '1'
+  NAPI_DIR: crates/binding
+  CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_DEBUG: true
+permissions:
+  # To publish packages with provenance
+  id-token: write
+  contents: write 
+  # Allow commenting on issues for `reusable-build.yml`
+  issues: write
+
+on:
+  workflow_dispatch:
+    # inputs:
+      # version:
+      #   type: choice
+      #   description: "Release Version"
+      #   required: true
+      #   options:
+      #     - major
+      #     - minor
+      #     - patch
+      #     - premajor
+      #     - preminor
+      #     - prepatch
+      #     - prerelease
+      # npm_tag:
+      #   type: choice
+      #   description: "Release Npm Tag"
+      #   required: true
+      #   default: "latest"
+      #   options:
+      #     - canary
+      #     - nightly
+      #     - latest
+      #     - beta
+      #     - alpha
+      # push_tags:
+      #   type: boolean
+      #   description: "push tags to github"
+      #   required: true
+      #   default: true
+
+
+jobs:
+  test-platforms:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          # Linux 平台
+          - host: ubuntu-latest 
+            target: x86_64-unknown-linux-gnu
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian 
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine-zig 
+          - host: macos-latest
+            target: aarch64-apple-darwin
+          # Windows 平台
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc 
+
+    name: Test ${{ matrix.platform.target }}
+    uses: ./.github/workflows/reusable-cargo-test.yml
+    with:
+      host: ${{ matrix.platform.host }}
+      target: ${{ matrix.platform.target }} 
+
+  build-platforms:
+    strategy:
+      fail-fast: true
+      matrix:
+        platform:
+          # Linux 平台
+          - host: ubuntu-latest 
+            target: x86_64-unknown-linux-gnu
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine-zig
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine-zig
+          # macOS 平台
+          - host: macos-latest
+            target: x86_64-apple-darwin
+          - host: macos-latest
+            target: aarch64-apple-darwin
+          # Windows 平台
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+          - host: windows-latest
+            target: aarch64-pc-windows-msvc
+    name: Build ${{ matrix.platform.target }}
+    uses: ./.github/workflows/reusable-napi-build.yml
+    with:
+      host: ${{ matrix.platform.host }}
+      target: ${{ matrix.platform.target }}
+      docker: ${{ matrix.platform.docker }}
+      binding_dir: crates/binding
+      binding_name: source-code-diagnosis
+      npm_package_name: '@shined/source-code-diagnosis'
+
+  napi-publish:
+    needs: [build-platforms,test-platforms]
+    uses: ./.github/workflows/reusable-napi-publish.yml
+    with:
+      binding_dir: crates/binding
+      npm_package_name: '@shined/source-code-diagnosis'
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+
+  npm-publish:
+    needs: [napi-publish]
+    uses: ./.github/workflows/reusable-npm-publish.yml
+    with:
+      binding_dir: crates/binding
+      npm_package_name: '@shined/source-code-diagnosis'
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+     
