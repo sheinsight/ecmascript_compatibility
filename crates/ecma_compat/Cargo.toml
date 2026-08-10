@@ -9,3 +9,4 @@ browserslist-rs={workspace = true}
 serde_json = { workspace = true }
 sourcemap = { workspace = true }
 thiserror={workspace = true}
+path-slash = {workspace = true}
