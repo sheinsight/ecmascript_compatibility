@@ -1,5 +1,5 @@
 [package]
-name = "ecmascript_compatibility_binding"
+name = "ecma_compat_binding"
 version = "0.1.0"
 edition = "2024"
 
@@ -8,7 +8,7 @@ crate-type = ["cdylib"]
 test = false
 
 [dependencies]
-ecmascript_compatibility = { path = "../ecmascript_compatibility" }
+ecma_compat = { path = "../ecma_compat" }
 napi = { workspace = true }
 napi-derive = { workspace = true }
 rayon = { workspace = true }

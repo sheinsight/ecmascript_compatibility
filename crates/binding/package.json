@@ -1,5 +1,5 @@
 {
-  "name": "@shined/ecmascript-compatibility",
+  "name": "@shined/ecma-compat",
   "version": "0.1.0",
   "main": "index.js",
   "types": "index.d.ts",
@@ -9,12 +9,26 @@
     "*.node"
   ],
   "napi": {
-    "binaryName": "ecmascript_compatibility_binding"
+    "binaryName": "ecma_compat_binding",
+    "packageName": "@shined/ecma_compat_binding",
+    "targets": [
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-pc-windows-msvc",
+      "aarch64-pc-windows-msvc",
+      "x86_64-unknown-linux-gnu",
+      "x86_64-unknown-linux-musl",
+      "aarch64-unknown-linux-gnu",
+      "aarch64-unknown-linux-musl"
+    ]
   },
   "scripts": {
-    "build": "napi build --platform --release",
-    "build:debug": "napi build --platform",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "create-npm-dirs": "napi create-npm-dirs",
+		"artifacts": "napi artifacts",
+    "build:js": "napi build --platform --js index.js --dts index.d.ts",
+		"build": "napi build --platform --release",
+		"build:debug": "napi build --platform"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.3.1"

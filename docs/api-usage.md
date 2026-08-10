@@ -5,7 +5,7 @@
 ## 最小用法
 
 ```rust
-use ecmascript_compatibility::CompatAnalyzer;
+use ecma_compat::CompatAnalyzer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
   let analyzer = CompatAnalyzer::new();
@@ -48,7 +48,7 @@ let report = analyzer.analyze_path("dist/app.js", &targets)?;
 示例：
 
 ```rust
-use ecmascript_compatibility::{CompatAnalyzer, source_map::SourceMapping};
+use ecma_compat::{CompatAnalyzer, source_map::SourceMapping};
 
 let analyzer = CompatAnalyzer::new();
 let targets = analyzer.resolve_targets(["chrome 60"])?;
@@ -95,7 +95,7 @@ const report = analyzeCwd("dist/statics", ["chrome 60"], {
 如果调用方已经读取了文件，或输入来自虚拟文件，可以构造 `SourceFile` 后调用 `analyze_source`：
 
 ```rust
-use ecmascript_compatibility::{CompatAnalyzer, SourceFile};
+use ecma_compat::{CompatAnalyzer, SourceFile};
 
 let source = SourceFile::from_path(
   "dist/app.js".into(),
@@ -114,7 +114,7 @@ let report = analyzer.analyze_source(source, &targets)?;
 默认分析器只报告非 Supported 状态。如果调试时需要完整 target 矩阵，可以使用 builder：
 
 ```rust
-let analyzer = ecmascript_compatibility::CompatAnalyzer::builder()
+let analyzer = ecma_compat::CompatAnalyzer::builder()
   .include_supported_targets(true)
   .build();
 ```
@@ -124,5 +124,5 @@ let analyzer = ecmascript_compatibility::CompatAnalyzer::builder()
 ## 示例程序
 
 ```sh
-cargo run -p ecmascript_compatibility --example analyze_file -- dist/app.js "chrome 60"
+cargo run -p ecma_compat --example analyze_file -- dist/app.js "chrome 60"
 ```

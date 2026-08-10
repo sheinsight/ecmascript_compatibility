@@ -4,7 +4,7 @@ use std::{
   time::{Duration, Instant},
 };
 
-use ecmascript_compatibility::{
+use ecma_compat::{
   CompatAnalysisTiming, CompatAnalyzer, CompatDiagnostic, CompatReport,
   CompatStatus, Runtime, RuntimeRelease, RuntimeTarget, SourceMapStatus,
   SourceSpan, TargetCompatStatus,

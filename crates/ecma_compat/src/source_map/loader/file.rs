@@ -74,8 +74,6 @@ mod tests {
       .unwrap()
       .as_nanos();
 
-    env::temp_dir().join(format!(
-      "ecmascript_compatibility_source_map_{nanos}.js.map",
-    ))
+    env::temp_dir().join(format!("ecma_compat_source_map_{nanos}.js.map",))
   }
 }

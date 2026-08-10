@@ -1,6 +1,6 @@
 # Source Map Crate Research - Documentation Index
 
-**Research Focus**: Evaluating Rust source map crates for ecmascript_compatibility Phase 1-3 implementation
+**Research Focus**: Evaluating Rust source map crates for ecma_compat Phase 1-3 implementation
 
 **Research Date**: 2026-08-06
 

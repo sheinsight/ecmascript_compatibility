@@ -1,6 +1,6 @@
 use std::{env, path::PathBuf, process::ExitCode};
 
-use ecmascript_compatibility::{
+use ecma_compat::{
   CompatAnalyzer, CompatStatus, RuntimeRelease,
   source_map::{SourceLocation, SourceMapping},
 };
@@ -8,7 +8,7 @@ use ecmascript_compatibility::{
 fn main() -> ExitCode {
   let Some((path, targets)) = parse_args() else {
     eprintln!(
-      "usage: cargo run -p ecmascript_compatibility --example analyze_file -- <js-file> <target> [target...]"
+      "usage: cargo run -p ecma_compat --example analyze_file -- <js-file> <target> [target...]"
     );
     return ExitCode::from(2);
   };

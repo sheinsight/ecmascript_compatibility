@@ -25,14 +25,14 @@ node scripts/sync_mdn_bcd.js
 脚本会：
 
 - 从 `@mdn/browser-compat-data` 获取 `data.json` 和 `package.json`。
-- 读取 `crates/ecmascript_compatibility/src/syntax_feature.rs` 中的 `javascript.*` key。
+- 读取 `crates/ecma_compat/src/syntax_feature.rs` 中的 `javascript.*` key。
 - 只生成这些 key 对应的 support rule。
 - 如果某个 `SyntaxFeatureId` 引用的 key 在 MDN 数据中不存在，脚本直接失败。
 
 生成结果在：
 
 ```text
-crates/ecmascript_compatibility/src/database/mdn_generated.rs
+crates/ecma_compat/src/database/mdn_generated.rs
 ```
 
 ## 人工校对点
@@ -49,8 +49,8 @@ crates/ecmascript_compatibility/src/database/mdn_generated.rs
 
 ```sh
 cargo fmt --all
-cargo test -p ecmascript_compatibility
-cargo clippy -p ecmascript_compatibility --all-targets -- -D warnings
+cargo test -p ecma_compat
+cargo clippy -p ecma_compat --all-targets -- -D warnings
 ```
 
 ## 新增语法特性的流程

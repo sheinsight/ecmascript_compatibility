@@ -1,6 +1,6 @@
 # Source Map Crate Evaluation - Executive Summary
 
-**Project**: ecmascript_compatibility Phase 1-3 Source Map Implementation
+**Project**: ecma_compat Phase 1-3 Source Map Implementation
 
 **Research Date**: 2026-08-06
 
@@ -310,7 +310,7 @@ Wrap oxc_sourcemap's lookup table strategy.
 
 ## Summary
 
-**oxc_sourcemap v8.1.2 is the recommended primary choice** for ecmascript_compatibility Phase 1-3 source map support. It provides:
+**oxc_sourcemap v8.1.2 is the recommended primary choice** for ecma_compat Phase 1-3 source map support. It provides:
 
 1. Superior performance characteristics matching design requirements
 2. Modern Rust with minimal dependencies

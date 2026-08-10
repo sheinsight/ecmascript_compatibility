@@ -26,3 +26,4 @@ debug
 
 # NAPI-RS native build output
 crates/binding/*.node
+node_modules

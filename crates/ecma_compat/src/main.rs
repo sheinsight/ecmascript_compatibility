@@ -1,6 +1,6 @@
 use std::{env, path::Path, process::ExitCode};
 
-use ecmascript_compatibility::{
+use ecma_compat::{
   CompatAnalyzer, CompatStatus, Runtime, RuntimeRelease, SourceMapStatus,
   TargetCompatStatus,
   source_map::{SourceLocation, SourceMapping},
@@ -74,17 +74,17 @@ fn parse_args() -> Option<(std::path::PathBuf, Vec<String>)> {
 
 fn print_usage() {
   eprintln!(
-    "usage: cargo run -p ecmascript_compatibility -- <generated-js-file> <target> [target...]"
+    "usage: cargo run -p ecma_compat -- <generated-js-file> <target> [target...]"
   );
   eprintln!(
-    r#"example: cargo run -p ecmascript_compatibility -- dist/app.js "chrome 60" "safari 13""#
+    r#"example: cargo run -p ecma_compat -- dist/app.js "chrome 60" "safari 13""#
   );
 }
 
 fn print_report_summary(
-  report: &ecmascript_compatibility::CompatReport,
+  report: &ecma_compat::CompatReport,
   target_queries: &[String],
-  targets: &[ecmascript_compatibility::RuntimeTarget],
+  targets: &[ecma_compat::RuntimeTarget],
 ) {
   let status_counts = StatusCounts::from_diagnostics(report.diagnostics());
 
@@ -133,7 +133,7 @@ fn print_original_location(source_mapping: &SourceMapping) {
 }
 
 fn print_target_statuses(
-  targets: &[ecmascript_compatibility::RuntimeTarget],
+  targets: &[ecma_compat::RuntimeTarget],
   target_statuses: &[TargetCompatStatus],
 ) {
   println!("  targets   :");
@@ -240,9 +240,7 @@ struct StatusCounts {
 }
 
 impl StatusCounts {
-  fn from_diagnostics(
-    diagnostics: &[ecmascript_compatibility::CompatDiagnostic],
-  ) -> Self {
+  fn from_diagnostics(diagnostics: &[ecma_compat::CompatDiagnostic]) -> Self {
     let mut counts = Self::default();
 
     for diagnostic in diagnostics {

@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This comparison analyzes two leading Rust source map crates against the design requirements in `/Users/10015448/Git/ecmascript_compatibility/docs/source-map-implementation-plan.md`.
+This comparison analyzes two leading Rust source map crates against the design requirements in `/Users/10015448/Git/ecma_compat/docs/source-map-implementation-plan.md`.
 
 - **sourcemap v9.3.2**: Mature, feature-rich crate from Sentry with extensive ecosystem support (RAM bundles, Hermes maps, Index Maps)
 - **oxc_sourcemap v8.1.2**: Optimized fork of sourcemap by the OXC project with performance improvements and simplified API
@@ -1023,7 +1023,7 @@ use oxc_sourcemap::{SourceMap, Token, SourceViewToken, SourceMapBuilder};
 
 ## 24. Conclusion
 
-**For ecmascript_compatibility Phase 1-3 source map integration:**
+**For ecma_compat Phase 1-3 source map integration:**
 
 1. **Primary Choice: oxc_sourcemap v8.1.2**
    - Faster lookup (O(log n) vs O(n))

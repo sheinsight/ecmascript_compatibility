@@ -8,11 +8,11 @@ const DATA_URL = `https://unpkg.com/${PACKAGE}/data.json`;
 const PACKAGE_JSON_URL = `https://unpkg.com/${PACKAGE}/package.json`;
 const TARGET = path.join(
   process.cwd(),
-  "crates/ecmascript_compatibility/src/database/mdn_generated.rs",
+  "crates/ecma_compat/src/database/mdn_generated.rs",
 );
 const SYNTAX_FEATURE_SOURCE = path.join(
   process.cwd(),
-  "crates/ecmascript_compatibility/src/syntax_feature.rs",
+  "crates/ecma_compat/src/syntax_feature.rs",
 );
 
 const RUNTIME_MAPPINGS = [
