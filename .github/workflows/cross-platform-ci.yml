@@ -74,7 +74,7 @@ jobs:
       target: ${{ matrix.platform.target }}
       docker: ${{ matrix.platform.docker }}
       binding_dir: crates/binding
-      binding_name: source-code-diagnosis
-      npm_package_name: '@shined/source-code-diagnosis'
+      binding_name: ecma_compat_binding
+      npm_package_name: '@shined/ecma-compat'
 
 
