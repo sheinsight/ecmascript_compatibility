@@ -13,7 +13,7 @@ on:
 
 jobs:
   build:
-    name: ${{ inputs.host }} - ${{ inputs.target }} - node@20
+    name: ${{ inputs.host }} - ${{ inputs.target }} - node@24
     runs-on: ${{ inputs.host }}
         
     steps:
