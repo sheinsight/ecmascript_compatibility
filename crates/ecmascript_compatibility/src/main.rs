@@ -30,7 +30,7 @@ fn main() -> ExitCode {
     }
   };
 
-  print_report_summary(&report, &target_queries);
+  print_report_summary(&report, &target_queries, &targets);
 
   if report.diagnostics().is_empty() {
     println!();
@@ -53,7 +53,7 @@ fn main() -> ExitCode {
       )
     );
     print_original_location(diagnostic.source_mapping());
-    print_target_statuses(report.targets(), diagnostic.target_statuses());
+    print_target_statuses(&targets, diagnostic.target_statuses());
     println!();
   }
 
@@ -84,6 +84,7 @@ fn print_usage() {
 fn print_report_summary(
   report: &ecmascript_compatibility::CompatReport,
   target_queries: &[String],
+  targets: &[ecmascript_compatibility::RuntimeTarget],
 ) {
   let status_counts = StatusCounts::from_diagnostics(report.diagnostics());
 
@@ -93,8 +94,7 @@ fn print_report_summary(
   println!("target queries   : {}", target_queries.join(", "));
   println!(
     "resolved targets : {}",
-    report
-      .targets()
+    targets
       .iter()
       .map(|target| format!(
         "{} {}",

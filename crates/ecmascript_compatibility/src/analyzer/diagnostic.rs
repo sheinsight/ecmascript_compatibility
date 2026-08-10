@@ -28,7 +28,7 @@ pub struct CompatDiagnostic {
 /// 明确 Supported 的 target 不进入 diagnostic。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TargetCompatStatus {
-  /// 被评估目标在 `CompatReport::targets()` 中的下标。
+  /// 被评估目标在本次分析传入 targets 列表中的下标。
   target_index: usize,
   /// 该运行时版本对当前 feature 的支持状态。
   status: CompatStatus,

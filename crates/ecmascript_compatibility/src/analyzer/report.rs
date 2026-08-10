@@ -1,11 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::{
-  source_map::{
-    SourceMapDiscoveryKind, SourceMapReference, SourceMapUnavailable,
-  },
-  target::RuntimeTarget,
+use crate::source_map::{
+  SourceMapDiscoveryKind, SourceMapReference, SourceMapUnavailable,
 };
 
 use super::CompatDiagnostic;
@@ -85,39 +82,27 @@ impl SourceMapStatus {
 pub struct CompatReport {
   /// 本次分析对应的输入文件路径。
   path: PathBuf,
-  /// target query 解析后的完整目标集合。
-  targets: Vec<RuntimeTarget>,
   /// 文件级 Source Map 状态。
   source_map_status: SourceMapStatus,
   /// 需要调用方关注的兼容性诊断。
   diagnostics: Vec<CompatDiagnostic>,
-  /// 单文件分析阶段耗时。
-  timing: CompatAnalysisTiming,
 }
 
 impl CompatReport {
   pub(crate) fn new(
     path: PathBuf,
-    targets: Vec<RuntimeTarget>,
     source_map_status: SourceMapStatus,
     diagnostics: Vec<CompatDiagnostic>,
-    timing: CompatAnalysisTiming,
   ) -> Self {
     Self {
       path,
-      targets,
       source_map_status,
       diagnostics,
-      timing,
     }
   }
 
   pub fn path(&self) -> &Path {
     &self.path
-  }
-
-  pub fn targets(&self) -> &[RuntimeTarget] {
-    &self.targets
   }
 
   pub const fn source_map_status(&self) -> &SourceMapStatus {
@@ -126,10 +111,6 @@ impl CompatReport {
 
   pub fn diagnostics(&self) -> &[CompatDiagnostic] {
     &self.diagnostics
-  }
-
-  pub const fn timing(&self) -> CompatAnalysisTiming {
-    self.timing
   }
 
   pub fn unsupported_diagnostics(

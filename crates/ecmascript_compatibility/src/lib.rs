@@ -9,8 +9,9 @@ mod syntax_feature;
 pub mod target;
 
 pub use analyzer::{
-  CompatAnalysisError, CompatAnalyzer, CompatAnalyzerBuilder, CompatDiagnostic,
-  CompatReport, SourceMapStatus, TargetCompatStatus,
+  CompatAnalysisError, CompatAnalysisTiming, CompatAnalyzer,
+  CompatAnalyzerBuilder, CompatDiagnostic, CompatReport, SourceMapStatus,
+  TargetCompatStatus,
 };
 pub use checker::{CompatStatus, evaluate};
 pub use database::{SupportRule, SyntaxCompatDatabase};

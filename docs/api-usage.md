@@ -36,7 +36,7 @@ let targets = analyzer.resolve_targets(["chrome 60", "firefox 78", "node 14"])?;
 let report = analyzer.analyze_path("dist/app.js", &targets)?;
 ```
 
-解析结果是 `RuntimeTarget` 列表。报告中的 `report.targets()` 会保留本次分析使用的 targets。
+解析结果是 `RuntimeTarget` 列表。诊断里的 `target_index` 指向这次传入 `analyze_path` 的 targets 列表。
 
 ## Source Map 结果
 

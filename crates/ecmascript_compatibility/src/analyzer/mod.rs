@@ -87,6 +87,20 @@ where
     path: impl AsRef<Path>,
     targets: &[RuntimeTarget],
   ) -> Result<CompatReport, CompatAnalysisError> {
+    self
+      .analyze_path_with_timing(path, targets)
+      .map(|(report, _timing)| report)
+  }
+
+  /// 从文件系统读取并分析一个源文件，同时返回单文件分析阶段耗时。
+  ///
+  /// `CompatReport` 只表达兼容性结果；timing 是性能观测元数据，目录级 binding
+  /// 可以用它汇总整体耗时，但它不属于单文件 report 模型。
+  pub fn analyze_path_with_timing(
+    &self,
+    path: impl AsRef<Path>,
+    targets: &[RuntimeTarget],
+  ) -> Result<(CompatReport, CompatAnalysisTiming), CompatAnalysisError> {
     let path = path.as_ref();
     let read_started_at = Instant::now();
     let source_text = fs::read_to_string(path).map_err(|source| {
@@ -129,7 +143,9 @@ where
     source: SourceFile,
     targets: &[RuntimeTarget],
   ) -> Result<CompatReport, CompatAnalysisError> {
-    self.analyze_source_with_read_timing(source, targets, Duration::ZERO)
+    self
+      .analyze_source_with_read_timing(source, targets, Duration::ZERO)
+      .map(|(report, _timing)| report)
   }
 
   fn analyze_source_with_read_timing(
@@ -137,7 +153,7 @@ where
     source: SourceFile,
     targets: &[RuntimeTarget],
     read: Duration,
-  ) -> Result<CompatReport, CompatAnalysisError> {
+  ) -> Result<(CompatReport, CompatAnalysisTiming), CompatAnalysisError> {
     let parse_detect_started_at = Instant::now();
     let detection = self.detector.detect(&source)?;
     let parse_detect = parse_detect_started_at.elapsed();
@@ -235,18 +251,21 @@ where
       ));
     }
 
-    Ok(CompatReport::new(
-      detection.path().to_path_buf(),
-      targets.to_vec(),
-      source_map_status,
-      diagnostics,
-      CompatAnalysisTiming::new(
-        read,
-        parse_detect,
-        generated_position,
-        source_map,
-        target_evaluate,
+    let timing = CompatAnalysisTiming::new(
+      read,
+      parse_detect,
+      generated_position,
+      source_map,
+      target_evaluate,
+    );
+
+    Ok((
+      CompatReport::new(
+        detection.path().to_path_buf(),
+        source_map_status,
+        diagnostics,
       ),
+      timing,
     ))
   }
 }

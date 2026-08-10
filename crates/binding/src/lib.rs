@@ -5,9 +5,9 @@ use std::{
 };
 
 use ecmascript_compatibility::{
-  CompatAnalyzer, CompatDiagnostic, CompatReport, CompatStatus, Runtime,
-  RuntimeRelease, RuntimeTarget, SourceMapStatus, SourceSpan,
-  TargetCompatStatus,
+  CompatAnalysisTiming, CompatAnalyzer, CompatDiagnostic, CompatReport,
+  CompatStatus, Runtime, RuntimeRelease, RuntimeTarget, SourceMapStatus,
+  SourceSpan, TargetCompatStatus,
   source_map::{
     SourceIdentity, SourceLocation, SourceMapLoader, SourceMapReference,
     SourceMapping, SourcePosition,
@@ -230,15 +230,17 @@ where
 {
   files
     .par_iter()
-    .map(|path| match analyzer.analyze_path(path, targets) {
-      Ok(report) => {
-        FileAnalysisEntry::Report(JsAnalyzedFileReport::from_report(report))
-      }
-      Err(error) => FileAnalysisEntry::Error(JsCompatFileError {
-        path: path_label(path),
-        message: error.to_string(),
-      }),
-    })
+    .map(
+      |path| match analyzer.analyze_path_with_timing(path, targets) {
+        Ok((report, timing)) => FileAnalysisEntry::Report(
+          JsAnalyzedFileReport::from_report_and_timing(report, timing),
+        ),
+        Err(error) => FileAnalysisEntry::Error(JsCompatFileError {
+          path: path_label(path),
+          message: error.to_string(),
+        }),
+      },
+    )
     .collect()
 }
 
@@ -361,7 +363,15 @@ fn normalize_extensions(extensions: &[String]) -> Vec<String> {
 
 impl JsCompatFileReport {
   fn from_report(report: CompatReport) -> Self {
-    JsAnalyzedFileReport::from_report(report).report
+    JsCompatFileReport {
+      path: path_label(report.path()),
+      source_map_status: report.source_map_status().into(),
+      diagnostics: report
+        .diagnostics()
+        .iter()
+        .map(JsCompatDiagnostic::from)
+        .collect(),
+    }
   }
 }
 
@@ -380,9 +390,11 @@ struct FileTiming {
 }
 
 impl JsAnalyzedFileReport {
-  fn from_report(report: CompatReport) -> Self {
+  fn from_report_and_timing(
+    report: CompatReport,
+    timing: CompatAnalysisTiming,
+  ) -> Self {
     let dto_conversion_started_at = Instant::now();
-    let timing = report.timing();
 
     let report = JsCompatFileReport {
       path: path_label(report.path()),

@@ -35,7 +35,6 @@ CLI 会输出：
 
 - 输入文件和解析后的 targets。
 - Source Map 文件级状态。
-- 检测到的语法 usage 数量。
 - Unsupported、Mixed、Unknown 诊断。
 - 每条诊断的 generated 位置和可用的 original source 位置。
 

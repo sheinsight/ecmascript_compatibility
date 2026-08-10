@@ -47,7 +47,7 @@ fn main() -> ExitCode {
     print_original_location(diagnostic.source_mapping());
 
     for target_status in diagnostic.target_statuses() {
-      let target = report.targets()[target_status.target_index()];
+      let target = resolved_targets[target_status.target_index()];
       println!(
         "  target          : {:?} {} -> {}",
         target.runtime(),
