@@ -24,7 +24,7 @@ on:
 
 jobs:
   build:
-    name: ${{ inputs.host }} - ${{ inputs.target }} - node@24
+    name: ${{ inputs.host }} - ${{ inputs.target }} - node@20
     runs-on: ${{ inputs.host }}
         
     steps:
@@ -41,22 +41,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
-
-      - name: Get pnpm store directory
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml', '**/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+          cache: pnpm
+          cache-dependency-path: '**/pnpm-lock.yaml'
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile --strict-peer-dependencies
         
       - name: Cache cargo
         uses: actions/cache@v4
