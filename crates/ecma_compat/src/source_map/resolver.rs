@@ -300,9 +300,9 @@ mod tests {
 
     assert_eq!(
       result.unwrap_err(),
-      SourceMapResolveError::Load(SourceMapLoadError::NotFound(PathBuf::from(
-        "dist/missing.js.map"
-      ),)),
+      SourceMapResolveError::Load(SourceMapLoadError::NotFound(
+        PathBuf::from("dist").join("missing.js.map"),
+      )),
     );
   }
 
@@ -320,8 +320,8 @@ mod tests {
       result.unwrap_err(),
       SourceMapResolveError::Discovery(
         SourceMapDiscoveryError::AmbiguousExplicitReferences(vec![
-          PathBuf::from("dist/one.js.map").display().to_string(),
-          PathBuf::from("dist/two.js.map").display().to_string(),
+          PathBuf::from("dist").join("one.js.map").display().to_string(),
+          PathBuf::from("dist").join("two.js.map").display().to_string(),
         ]),
       ),
     );
