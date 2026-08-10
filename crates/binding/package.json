@@ -29,7 +29,10 @@
     "build:js": "napi build --platform --js index.js --dts index.d.ts",
 		"build": "napi build --platform --release",
 		"build:debug": "napi build --platform",
-    "prepack": "clean-pkg-json"
+    "prepack": "clean-pkg-json",
+    "prepublishOnly": "napi prepublish -t npm --gh-release-id $GITHUB_REF_NAME",
+    "universal": "napi universal",
+		"version": "napi version"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.3.1",
