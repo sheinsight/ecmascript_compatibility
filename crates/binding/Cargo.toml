@@ -8,7 +8,7 @@ crate-type = ["cdylib"]
 test = false
 
 [dependencies]
-ecma_compat = { path = "../ecma_compat" }
+ecma_compat = { workspace = true }
 napi = { workspace = true }
 napi-derive = { workspace = true }
 rayon = { workspace = true }

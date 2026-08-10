@@ -4,8 +4,8 @@ resolver = "2"
 
 [workspace.dependencies]
 napi = { version = "3.12.0", default-features = false, features = ["napi4"] }
-napi-build = { version = "2.4.0" }
-napi-derive = { version = "3.6.2" }
+napi-build = { version = "2.4.1" }
+napi-derive = { version = "3.6.3" }
 rayon = { version = "1.11.0" }
 
 oxc = {version = "^0.143.0",features=["semantic"]}
@@ -13,4 +13,6 @@ browserslist-rs ={ version ="0.20.0" }
 serde_json = { version = "1.0.145" }
 sourcemap = { version = "9.3.2", default-features = false }
 
-thiserror = { version = "2.0.19" }
+thiserror = { version = "2.0.20" }
+
+ecma_compat = { path = "crates/ecma_compat" }

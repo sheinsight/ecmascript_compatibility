@@ -1,7 +1,9 @@
 {
   "cSpell.words": [
     "browserslist",
+    "cdylib",
     "napi",
+    "serde",
     "thiserror"
   ]
 }
