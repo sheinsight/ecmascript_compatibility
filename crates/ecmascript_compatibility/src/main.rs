@@ -47,14 +47,13 @@ fn main() -> ExitCode {
     println!(
       "  generated : {}",
       generated_location_label(
-        diagnostic.path(),
         report.path(),
-        diagnostic.generated_position().line() + 1,
-        diagnostic.generated_position().col() + 1,
+        diagnostic.position().line() + 1,
+        diagnostic.position().col() + 1,
       )
     );
     print_original_location(diagnostic.source_mapping());
-    print_target_statuses(diagnostic.target_statuses());
+    print_target_statuses(report.targets(), diagnostic.target_statuses());
     println!();
   }
 
@@ -109,7 +108,6 @@ fn print_report_summary(
     "source map       : {}",
     source_map_status_label(report.source_map_status())
   );
-  println!("detected usages  : {}", report.detected_usage_count());
   println!("diagnostics      : {}", report.diagnostics().len());
   println!(
     "target statuses  : unsupported={}, mixed={}, unknown={}",
@@ -134,10 +132,13 @@ fn print_original_location(source_mapping: &SourceMapping) {
   }
 }
 
-fn print_target_statuses(target_statuses: &[TargetCompatStatus]) {
+fn print_target_statuses(
+  targets: &[ecmascript_compatibility::RuntimeTarget],
+  target_statuses: &[TargetCompatStatus],
+) {
   println!("  targets   :");
   for target_status in target_statuses {
-    let target = target_status.target();
+    let target = targets[target_status.target_index()];
     println!(
       "    - {:<18} [{:<11}] {}",
       format!(
@@ -161,17 +162,8 @@ fn source_label(location: &SourceLocation) -> String {
   }
 }
 
-fn generated_location_label(
-  diagnostic_path: &Path,
-  report_path: &Path,
-  line: u32,
-  col: u32,
-) -> String {
-  if diagnostic_path == report_path {
-    format!("line {line}, column {col} (bundle)")
-  } else {
-    format!("{}:{line}:{col}", diagnostic_path.display())
-  }
+fn generated_location_label(report_path: &Path, line: u32, col: u32) -> String {
+  format!("{}:{line}:{col}", report_path.display())
 }
 
 fn source_map_status_label(status: &SourceMapStatus) -> String {
@@ -179,10 +171,7 @@ fn source_map_status_label(status: &SourceMapStatus) -> String {
     SourceMapStatus::Resolved {
       discovery_kind,
       reference,
-      source_count,
-    } => format!(
-      "resolved via {discovery_kind:?}, {source_count} sources ({reference:?})"
-    ),
+    } => format!("resolved via {discovery_kind:?} ({reference:?})"),
     SourceMapStatus::Unavailable(reason) => format!("unavailable ({reason:?})"),
   }
 }

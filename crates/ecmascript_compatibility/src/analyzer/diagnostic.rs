@@ -1,9 +1,6 @@
-use std::path::{Path, PathBuf};
-
 use crate::{
   CompatStatus, SourceSpan, SyntaxFeatureId,
   source_map::{SourceMapping, SourcePosition},
-  target::RuntimeTarget,
 };
 
 /// 单个语法特性使用位置上的兼容性诊断。
@@ -15,13 +12,11 @@ use crate::{
 pub struct CompatDiagnostic {
   /// syntax detector 识别出的 ECMAScript 语法特性。
   feature: SyntaxFeatureId,
-  /// syntax detector 实际分析的文件路径，通常是构建产物文件。
-  path: PathBuf,
-  /// usage 在 `path` 对应文本里的 UTF-8 byte span。
+  /// usage 在当前分析文件里的 UTF-8 byte span。
   span: SourceSpan,
-  /// usage 起点转换后的 generated 行列，便于 Source Map 查询和用户展示。
-  generated_position: SourcePosition,
-  /// Source Map 对该 usage 的映射结果；缺失时仍保留 generated 位置。
+  /// usage 起点转换后的行列，位置基于当前分析文件。
+  position: SourcePosition,
+  /// Source Map 对该 usage 的映射结果；缺失时仍保留当前分析文件位置。
   source_mapping: SourceMapping,
   /// 这个 usage 在各目标运行时上的非 Supported 状态。
   target_statuses: Vec<TargetCompatStatus>,
@@ -33,8 +28,8 @@ pub struct CompatDiagnostic {
 /// 明确 Supported 的 target 不进入 diagnostic。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TargetCompatStatus {
-  /// 被评估的运行时及版本。
-  target: RuntimeTarget,
+  /// 被评估目标在 `CompatReport::targets()` 中的下标。
+  target_index: usize,
   /// 该运行时版本对当前 feature 的支持状态。
   status: CompatStatus,
 }
@@ -42,17 +37,15 @@ pub struct TargetCompatStatus {
 impl CompatDiagnostic {
   pub(crate) fn new(
     feature: SyntaxFeatureId,
-    path: PathBuf,
     span: SourceSpan,
-    generated_position: SourcePosition,
+    position: SourcePosition,
     source_mapping: SourceMapping,
     target_statuses: Vec<TargetCompatStatus>,
   ) -> Self {
     Self {
       feature,
-      path,
       span,
-      generated_position,
+      position,
       source_mapping,
       target_statuses,
     }
@@ -62,16 +55,12 @@ impl CompatDiagnostic {
     self.feature
   }
 
-  pub fn path(&self) -> &Path {
-    &self.path
-  }
-
   pub const fn span(&self) -> SourceSpan {
     self.span
   }
 
-  pub const fn generated_position(&self) -> SourcePosition {
-    self.generated_position
+  pub const fn position(&self) -> SourcePosition {
+    self.position
   }
 
   pub const fn source_mapping(&self) -> &SourceMapping {
@@ -99,12 +88,15 @@ impl CompatDiagnostic {
 }
 
 impl TargetCompatStatus {
-  pub(crate) const fn new(target: RuntimeTarget, status: CompatStatus) -> Self {
-    Self { target, status }
+  pub(crate) const fn new(target_index: usize, status: CompatStatus) -> Self {
+    Self {
+      target_index,
+      status,
+    }
   }
 
-  pub const fn target(self) -> RuntimeTarget {
-    self.target
+  pub const fn target_index(self) -> usize {
+    self.target_index
   }
 
   pub const fn status(self) -> CompatStatus {

@@ -9,8 +9,8 @@ use ecmascript_compatibility::{
   RuntimeRelease, RuntimeTarget, SourceMapStatus, SourceSpan,
   TargetCompatStatus,
   source_map::{
-    SourceIdentity, SourceLocation, SourceMapLoadError, SourceMapLoader,
-    SourceMapReference, SourceMapping, SourcePosition,
+    SourceIdentity, SourceLocation, SourceMapLoader, SourceMapReference,
+    SourceMapping, SourcePosition,
   },
 };
 use napi::bindgen_prelude::*;
@@ -23,26 +23,23 @@ const DEFAULT_EXTENSIONS: &[&str] = &["js", "mjs", "cjs", "jsx"];
 pub struct AnalyzeCwdOptions {
   pub include_supported_targets: Option<bool>,
   pub extensions: Option<Vec<String>>,
-  pub source_maps: Option<bool>,
   pub parallelism: Option<u32>,
-  pub max_file_size_bytes: Option<u32>,
+  pub exclude_empty_reports: Option<bool>,
 }
 
 #[napi(object)]
 pub struct AnalyzePathOptions {
   pub include_supported_targets: Option<bool>,
-  pub source_maps: Option<bool>,
 }
 
 #[napi(object)]
 pub struct JsCompatDirectoryReport {
   pub cwd: String,
+  pub targets: Vec<JsRuntimeTarget>,
   pub file_count: u32,
-  pub skipped_file_count: u32,
   pub diagnostic_count: u32,
   pub reports: Vec<JsCompatFileReport>,
   pub errors: Vec<JsCompatFileError>,
-  pub skipped: Vec<JsSkippedFile>,
   pub timing: JsDirectoryTiming,
 }
 
@@ -53,34 +50,15 @@ pub struct JsCompatFileError {
 }
 
 #[napi(object)]
-pub struct JsSkippedFile {
-  pub path: String,
-  pub size: u32,
-}
-
-#[napi(object)]
 pub struct JsCompatFileReport {
   pub path: String,
-  pub targets: Vec<JsRuntimeTarget>,
-  pub detected_usage_count: u32,
   pub source_map_status: JsSourceMapStatus,
   pub diagnostics: Vec<JsCompatDiagnostic>,
-  pub timing: JsFileTiming,
 }
 
 #[napi(object)]
 pub struct JsDirectoryTiming {
   pub elapsed_ms: f64,
-  pub read_ms: f64,
-  pub parse_detect_ms: f64,
-  pub generated_position_ms: f64,
-  pub source_map_ms: f64,
-  pub target_evaluate_ms: f64,
-  pub dto_conversion_ms: f64,
-}
-
-#[napi(object)]
-pub struct JsFileTiming {
   pub read_ms: f64,
   pub parse_detect_ms: f64,
   pub generated_position_ms: f64,
@@ -100,16 +78,14 @@ pub struct JsSourceMapStatus {
   pub kind: String,
   pub discovery_kind: Option<String>,
   pub reference: Option<String>,
-  pub source_count: Option<u32>,
   pub reason: Option<String>,
 }
 
 #[napi(object)]
 pub struct JsCompatDiagnostic {
   pub feature: String,
-  pub path: String,
   pub span: JsSourceSpan,
-  pub generated_position: JsSourcePosition,
+  pub position: JsSourcePosition,
   pub source_mapping: JsSourceMapping,
   pub target_statuses: Vec<JsTargetCompatStatus>,
 }
@@ -137,7 +113,7 @@ pub struct JsSourceMapping {
 
 #[napi(object)]
 pub struct JsTargetCompatStatus {
-  pub target: JsRuntimeTarget,
+  pub target_index: u32,
   pub status: String,
 }
 
@@ -158,36 +134,21 @@ pub fn analyze_cwd(
   let include_supported_targets = options
     .as_ref()
     .and_then(|options| options.include_supported_targets);
-  let source_maps = options
-    .as_ref()
-    .and_then(|options| options.source_maps)
-    .unwrap_or(true);
   let parallelism = options.as_ref().and_then(|options| options.parallelism);
-  let max_file_size_bytes = options
+  let exclude_empty_reports = options
     .as_ref()
-    .and_then(|options| options.max_file_size_bytes);
+    .and_then(|options| options.exclude_empty_reports)
+    .unwrap_or(true);
 
-  if source_maps {
-    analyze_cwd_with_analyzer(
-      &cwd,
-      &extensions,
-      &targets,
-      parallelism,
-      max_file_size_bytes,
-      elapsed_started_at,
-      &analyzer_from_options(include_supported_targets),
-    )
-  } else {
-    analyze_cwd_with_analyzer(
-      &cwd,
-      &extensions,
-      &targets,
-      parallelism,
-      max_file_size_bytes,
-      elapsed_started_at,
-      &analyzer_without_source_maps(include_supported_targets),
-    )
-  }
+  analyze_cwd_with_analyzer(
+    &cwd,
+    &extensions,
+    &targets,
+    parallelism,
+    exclude_empty_reports,
+    elapsed_started_at,
+    &analyzer_from_options(include_supported_targets),
+  )
 }
 
 fn analyze_cwd_with_analyzer<L>(
@@ -195,16 +156,14 @@ fn analyze_cwd_with_analyzer<L>(
   extensions: &[String],
   targets: &[String],
   parallelism: Option<u32>,
-  max_file_size_bytes: Option<u32>,
+  exclude_empty_reports: bool,
   elapsed_started_at: Instant,
   analyzer: &CompatAnalyzer<L>,
 ) -> Result<JsCompatDirectoryReport>
 where
   L: SourceMapLoader + Sync,
 {
-  let discovered_files = discover_js_files(cwd, extensions)?;
-  let (files, skipped) =
-    partition_files_by_size(discovered_files, max_file_size_bytes)?;
+  let files = discover_js_files(cwd, extensions)?;
   let resolved_targets = analyzer
     .resolve_targets(targets.iter().map(String::as_str))
     .map_err(to_napi_error)?;
@@ -221,31 +180,42 @@ where
     analyze_files_in_parallel(&files, &resolved_targets, analyzer)
   };
 
-  let mut reports = Vec::new();
+  let mut analyzed_reports = Vec::new();
   let mut errors = Vec::new();
 
   for entry in entries {
     match entry {
-      FileAnalysisEntry::Report(report) => reports.push(report),
+      FileAnalysisEntry::Report(analyzed_report) => {
+        analyzed_reports.push(analyzed_report);
+      }
       FileAnalysisEntry::Error(error) => errors.push(error),
     }
   }
 
-  let diagnostic_count = reports
+  if exclude_empty_reports {
+    analyzed_reports.retain(|entry| !entry.report.diagnostics.is_empty());
+  }
+
+  let diagnostic_count = analyzed_reports
     .iter()
-    .map(|report: &JsCompatFileReport| report.diagnostics.len() as u32)
+    .map(|entry| entry.report.diagnostics.len() as u32)
     .sum();
-  let timing =
-    JsDirectoryTiming::from_reports(elapsed_started_at.elapsed(), &reports);
+  let timing = JsDirectoryTiming::from_file_timings(
+    elapsed_started_at.elapsed(),
+    &analyzed_reports,
+  );
+  let reports = analyzed_reports
+    .into_iter()
+    .map(|entry| entry.report)
+    .collect::<Vec<_>>();
 
   Ok(JsCompatDirectoryReport {
     cwd: path_label(cwd),
+    targets: resolved_targets.iter().copied().map(Into::into).collect(),
     file_count: reports.len() as u32,
-    skipped_file_count: skipped.len() as u32,
     diagnostic_count,
     reports,
     errors,
-    skipped,
     timing,
   })
 }
@@ -262,7 +232,7 @@ where
     .par_iter()
     .map(|path| match analyzer.analyze_path(path, targets) {
       Ok(report) => {
-        FileAnalysisEntry::Report(JsCompatFileReport::from_report(report))
+        FileAnalysisEntry::Report(JsAnalyzedFileReport::from_report(report))
       }
       Err(error) => FileAnalysisEntry::Error(JsCompatFileError {
         path: path_label(path),
@@ -273,35 +243,8 @@ where
 }
 
 enum FileAnalysisEntry {
-  Report(JsCompatFileReport),
+  Report(JsAnalyzedFileReport),
   Error(JsCompatFileError),
-}
-
-fn partition_files_by_size(
-  files: Vec<PathBuf>,
-  max_file_size_bytes: Option<u32>,
-) -> Result<(Vec<PathBuf>, Vec<JsSkippedFile>)> {
-  let Some(max_file_size_bytes) = max_file_size_bytes else {
-    return Ok((files, Vec::new()));
-  };
-
-  let mut included = Vec::new();
-  let mut skipped = Vec::new();
-
-  for path in files {
-    let size = fs::metadata(&path).map_err(to_napi_error)?.len();
-
-    if size > u64::from(max_file_size_bytes) {
-      skipped.push(JsSkippedFile {
-        path: path_label(&path),
-        size: size.min(u64::from(u32::MAX)) as u32,
-      });
-    } else {
-      included.push(path);
-    }
-  }
-
-  Ok((included, skipped))
 }
 
 #[napi(js_name = "analyzePath")]
@@ -313,31 +256,16 @@ pub fn analyze_path(
   let include_supported_targets = options
     .as_ref()
     .and_then(|options| options.include_supported_targets);
-  let source_maps = options
-    .and_then(|options| options.source_maps)
-    .unwrap_or(true);
 
-  if source_maps {
-    let analyzer = analyzer_from_options(include_supported_targets);
-    let resolved_targets = analyzer
-      .resolve_targets(targets.iter().map(String::as_str))
-      .map_err(to_napi_error)?;
+  let analyzer = analyzer_from_options(include_supported_targets);
+  let resolved_targets = analyzer
+    .resolve_targets(targets.iter().map(String::as_str))
+    .map_err(to_napi_error)?;
 
-    analyzer
-      .analyze_path(path, &resolved_targets)
-      .map(JsCompatFileReport::from_report)
-      .map_err(to_napi_error)
-  } else {
-    let analyzer = analyzer_without_source_maps(include_supported_targets);
-    let resolved_targets = analyzer
-      .resolve_targets(targets.iter().map(String::as_str))
-      .map_err(to_napi_error)?;
-
-    analyzer
-      .analyze_path(path, &resolved_targets)
-      .map(JsCompatFileReport::from_report)
-      .map_err(to_napi_error)
-  }
+  analyzer
+    .analyze_path(path, &resolved_targets)
+    .map(JsCompatFileReport::from_report)
+    .map_err(to_napi_error)
 }
 
 fn analyzer_from_options(
@@ -346,38 +274,6 @@ fn analyzer_from_options(
   CompatAnalyzer::builder()
     .include_supported_targets(include_supported_targets.unwrap_or(false))
     .build()
-}
-
-fn analyzer_without_source_maps(
-  include_supported_targets: Option<bool>,
-) -> CompatAnalyzer<DisabledSourceMapLoader> {
-  CompatAnalyzer::builder()
-    .source_map_loader(DisabledSourceMapLoader)
-    .include_supported_targets(include_supported_targets.unwrap_or(false))
-    .build()
-}
-
-#[derive(Debug, Clone, Copy)]
-struct DisabledSourceMapLoader;
-
-impl SourceMapLoader for DisabledSourceMapLoader {
-  fn load(
-    &self,
-    reference: &SourceMapReference,
-  ) -> std::result::Result<Vec<u8>, SourceMapLoadError> {
-    Err(SourceMapLoadError::UnsupportedReferenceKind {
-      expected: "disabled source map loading",
-      actual: source_map_reference_kind(reference),
-    })
-  }
-}
-
-fn source_map_reference_kind(reference: &SourceMapReference) -> &'static str {
-  match reference {
-    SourceMapReference::InlineData(_) => "inline data URI",
-    SourceMapReference::LocalFile(_) => "local file",
-    SourceMapReference::RemoteUrl(_) => "remote URL",
-  }
 }
 
 fn normalize_cwd(cwd: String) -> Result<PathBuf> {
@@ -465,37 +361,58 @@ fn normalize_extensions(extensions: &[String]) -> Vec<String> {
 
 impl JsCompatFileReport {
   fn from_report(report: CompatReport) -> Self {
+    JsAnalyzedFileReport::from_report(report).report
+  }
+}
+
+struct JsAnalyzedFileReport {
+  report: JsCompatFileReport,
+  timing: FileTiming,
+}
+
+struct FileTiming {
+  read_ms: f64,
+  parse_detect_ms: f64,
+  generated_position_ms: f64,
+  source_map_ms: f64,
+  target_evaluate_ms: f64,
+  dto_conversion_ms: f64,
+}
+
+impl JsAnalyzedFileReport {
+  fn from_report(report: CompatReport) -> Self {
     let dto_conversion_started_at = Instant::now();
     let timing = report.timing();
 
-    let mut converted = Self {
+    let report = JsCompatFileReport {
       path: path_label(report.path()),
-      targets: report.targets().iter().copied().map(Into::into).collect(),
-      detected_usage_count: report.detected_usage_count() as u32,
       source_map_status: report.source_map_status().into(),
       diagnostics: report
         .diagnostics()
         .iter()
         .map(JsCompatDiagnostic::from)
         .collect(),
-      timing: JsFileTiming {
-        read_ms: duration_ms(timing.read()),
-        parse_detect_ms: duration_ms(timing.parse_detect()),
-        generated_position_ms: duration_ms(timing.generated_position()),
-        source_map_ms: duration_ms(timing.source_map()),
-        target_evaluate_ms: duration_ms(timing.target_evaluate()),
-        dto_conversion_ms: 0.0,
-      },
+    };
+    let mut timing = FileTiming {
+      read_ms: duration_ms(timing.read()),
+      parse_detect_ms: duration_ms(timing.parse_detect()),
+      generated_position_ms: duration_ms(timing.generated_position()),
+      source_map_ms: duration_ms(timing.source_map()),
+      target_evaluate_ms: duration_ms(timing.target_evaluate()),
+      dto_conversion_ms: 0.0,
     };
 
-    converted.timing.dto_conversion_ms =
-      duration_ms(dto_conversion_started_at.elapsed());
-    converted
+    timing.dto_conversion_ms = duration_ms(dto_conversion_started_at.elapsed());
+
+    Self { report, timing }
   }
 }
 
 impl JsDirectoryTiming {
-  fn from_reports(elapsed: Duration, reports: &[JsCompatFileReport]) -> Self {
+  fn from_file_timings(
+    elapsed: Duration,
+    reports: &[JsAnalyzedFileReport],
+  ) -> Self {
     Self {
       elapsed_ms: duration_ms(elapsed),
       read_ms: reports.iter().map(|report| report.timing.read_ms).sum(),
@@ -538,19 +455,16 @@ impl From<&SourceMapStatus> for JsSourceMapStatus {
       SourceMapStatus::Resolved {
         discovery_kind,
         reference,
-        source_count,
       } => Self {
         kind: "resolved".to_string(),
         discovery_kind: Some(format!("{discovery_kind:?}")),
         reference: Some(source_map_reference_label(reference)),
-        source_count: Some(*source_count),
         reason: None,
       },
       SourceMapStatus::Unavailable(reason) => Self {
         kind: "unavailable".to_string(),
         discovery_kind: None,
         reference: None,
-        source_count: None,
         reason: Some(format!("{reason:?}")),
       },
     }
@@ -561,9 +475,8 @@ impl From<&CompatDiagnostic> for JsCompatDiagnostic {
   fn from(diagnostic: &CompatDiagnostic) -> Self {
     Self {
       feature: format!("{:?}", diagnostic.feature()),
-      path: path_label(diagnostic.path()),
       span: diagnostic.span().into(),
-      generated_position: diagnostic.generated_position().into(),
+      position: diagnostic.position().into(),
       source_mapping: diagnostic.source_mapping().into(),
       target_statuses: diagnostic
         .target_statuses()
@@ -618,7 +531,7 @@ impl From<&SourceMapping> for JsSourceMapping {
 impl From<TargetCompatStatus> for JsTargetCompatStatus {
   fn from(target_status: TargetCompatStatus) -> Self {
     Self {
-      target: target_status.target().into(),
+      target_index: target_status.target_index() as u32,
       status: status_label(target_status.status()).to_string(),
     }
   }
@@ -645,7 +558,11 @@ fn source_identity_label(source: &SourceIdentity) -> String {
 }
 
 fn source_map_reference_label(reference: &SourceMapReference) -> String {
-  format!("{reference:?}")
+  match reference {
+    SourceMapReference::InlineData(data_uri) => data_uri.clone(),
+    SourceMapReference::LocalFile(path) => path_label(path),
+    SourceMapReference::RemoteUrl(url) => url.clone(),
+  }
 }
 
 fn runtime_label(runtime: Runtime) -> &'static str {

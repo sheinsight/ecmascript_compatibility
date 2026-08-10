@@ -163,7 +163,7 @@ where
       let target_evaluate_started_at = Instant::now();
       let mut target_statuses = Vec::new();
 
-      for target in targets {
+      for (target_index, target) in targets.iter().enumerate() {
         let rule = self
           .database
           .support_rule(usage.feature(), target.runtime());
@@ -177,7 +177,7 @@ where
           continue;
         }
 
-        target_statuses.push(TargetCompatStatus::new(*target, status));
+        target_statuses.push(TargetCompatStatus::new(target_index, status));
       }
       target_evaluate += target_evaluate_started_at.elapsed();
 
@@ -228,7 +228,6 @@ where
       // `target_statuses` 中，避免把 usage × target 展开成重复诊断。
       diagnostics.push(CompatDiagnostic::new(
         pending.feature,
-        detection.path().to_path_buf(),
         pending.span,
         generated_position,
         source_mapping.into_source_mapping(),
@@ -239,7 +238,6 @@ where
     Ok(CompatReport::new(
       detection.path().to_path_buf(),
       targets.to_vec(),
-      detection.usages().len(),
       source_map_status,
       diagnostics,
       CompatAnalysisTiming::new(
@@ -314,7 +312,6 @@ fn source_map_status(
     Ok(Some(resolved)) => SourceMapStatus::Resolved {
       discovery_kind: resolved.discovery_kind(),
       reference: resolved.reference().clone(),
-      source_count: resolved.document().source_count(),
     },
     Ok(None) => SourceMapStatus::Unavailable(SourceMapUnavailable::NotFound {
       fallback_path: adjacent_source_map_path(source_path),
@@ -369,9 +366,11 @@ mod tests {
     let targets = analyzer.resolve_targets(["chrome 79"]).unwrap();
     let report = analyzer.analyze_source(source, &targets).unwrap();
 
-    assert_eq!(report.detected_usage_count(), 1);
     assert_eq!(report.diagnostics().len(), 1);
-    assert_eq!(report.diagnostics()[0].path(), Path::new("input.js"));
+    assert_eq!(
+      report.diagnostics()[0].target_statuses()[0].target_index(),
+      0
+    );
     assert_eq!(
       report.diagnostics()[0].target_statuses()[0].status(),
       CompatStatus::Unsupported,
@@ -400,6 +399,10 @@ mod tests {
     let report = analyzer.analyze_source(source, &targets).unwrap();
 
     assert_eq!(report.diagnostics().len(), 1);
+    assert_eq!(
+      report.diagnostics()[0].target_statuses()[0].target_index(),
+      0
+    );
     assert_eq!(
       report.diagnostics()[0].target_statuses()[0].status(),
       CompatStatus::Supported,
@@ -453,6 +456,14 @@ mod tests {
 
     assert_eq!(report.diagnostics().len(), 1);
     assert_eq!(report.diagnostics()[0].target_statuses().len(), 2);
+    assert_eq!(
+      report.diagnostics()[0].target_statuses()[0].target_index(),
+      0
+    );
+    assert_eq!(
+      report.diagnostics()[0].target_statuses()[1].target_index(),
+      1
+    );
   }
 
   #[test]

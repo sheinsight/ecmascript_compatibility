@@ -5,35 +5,31 @@ export declare function analyzeCwd(cwd: string, targets: Array<string>, options?
 export interface AnalyzeCwdOptions {
   includeSupportedTargets?: boolean
   extensions?: Array<string>
-  sourceMaps?: boolean
   parallelism?: number
-  maxFileSizeBytes?: number
+  excludeEmptyReports?: boolean
 }
 
 export declare function analyzePath(path: string, targets: Array<string>, options?: AnalyzePathOptions | undefined | null): JsCompatFileReport
 
 export interface AnalyzePathOptions {
   includeSupportedTargets?: boolean
-  sourceMaps?: boolean
 }
 
 export interface JsCompatDiagnostic {
   feature: string
-  path: string
   span: JsSourceSpan
-  generatedPosition: JsSourcePosition
+  position: JsSourcePosition
   sourceMapping: JsSourceMapping
   targetStatuses: Array<JsTargetCompatStatus>
 }
 
 export interface JsCompatDirectoryReport {
   cwd: string
+  targets: Array<JsRuntimeTarget>
   fileCount: number
-  skippedFileCount: number
   diagnosticCount: number
   reports: Array<JsCompatFileReport>
   errors: Array<JsCompatFileError>
-  skipped: Array<JsSkippedFile>
   timing: JsDirectoryTiming
 }
 
@@ -44,11 +40,8 @@ export interface JsCompatFileError {
 
 export interface JsCompatFileReport {
   path: string
-  targets: Array<JsRuntimeTarget>
-  detectedUsageCount: number
   sourceMapStatus: JsSourceMapStatus
   diagnostics: Array<JsCompatDiagnostic>
-  timing: JsFileTiming
 }
 
 export interface JsDirectoryTiming {
@@ -61,23 +54,9 @@ export interface JsDirectoryTiming {
   dtoConversionMs: number
 }
 
-export interface JsFileTiming {
-  readMs: number
-  parseDetectMs: number
-  generatedPositionMs: number
-  sourceMapMs: number
-  targetEvaluateMs: number
-  dtoConversionMs: number
-}
-
 export interface JsRuntimeTarget {
   runtime: string
   release: string
-}
-
-export interface JsSkippedFile {
-  path: string
-  size: number
 }
 
 export interface JsSourceMapping {
@@ -92,7 +71,6 @@ export interface JsSourceMapStatus {
   kind: string
   discoveryKind?: string
   reference?: string
-  sourceCount?: number
   reason?: string
 }
 
@@ -107,6 +85,6 @@ export interface JsSourceSpan {
 }
 
 export interface JsTargetCompatStatus {
-  target: JsRuntimeTarget
+  targetIndex: number
   status: string
 }

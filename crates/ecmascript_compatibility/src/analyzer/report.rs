@@ -67,7 +67,6 @@ pub enum SourceMapStatus {
   Resolved {
     discovery_kind: SourceMapDiscoveryKind,
     reference: SourceMapReference,
-    source_count: u32,
   },
   Unavailable(SourceMapUnavailable),
 }
@@ -88,8 +87,6 @@ pub struct CompatReport {
   path: PathBuf,
   /// target query 解析后的完整目标集合。
   targets: Vec<RuntimeTarget>,
-  /// syntax detector 发现的 usage 总数，包含最终没有形成 diagnostic 的 supported usage。
-  detected_usage_count: usize,
   /// 文件级 Source Map 状态。
   source_map_status: SourceMapStatus,
   /// 需要调用方关注的兼容性诊断。
@@ -102,7 +99,6 @@ impl CompatReport {
   pub(crate) fn new(
     path: PathBuf,
     targets: Vec<RuntimeTarget>,
-    detected_usage_count: usize,
     source_map_status: SourceMapStatus,
     diagnostics: Vec<CompatDiagnostic>,
     timing: CompatAnalysisTiming,
@@ -110,7 +106,6 @@ impl CompatReport {
     Self {
       path,
       targets,
-      detected_usage_count,
       source_map_status,
       diagnostics,
       timing,
@@ -123,10 +118,6 @@ impl CompatReport {
 
   pub fn targets(&self) -> &[RuntimeTarget] {
     &self.targets
-  }
-
-  pub const fn detected_usage_count(&self) -> usize {
-    self.detected_usage_count
   }
 
   pub const fn source_map_status(&self) -> &SourceMapStatus {

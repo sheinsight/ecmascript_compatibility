@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
       "{:?} at generated {:?}",
       diagnostic.feature(),
-      diagnostic.generated_position()
+      diagnostic.position()
     );
   }
 
@@ -75,6 +75,20 @@ for diagnostic in report.diagnostics() {
 ```
 
 注意：Source Map 只增强定位，不影响语法兼容性判断。Source Map 缺失时，诊断仍然保留 generated 文件位置。
+
+## Node.js 目录分析
+
+napi binding 提供 `analyzeCwd(cwd, targets, options)`，会递归扫描目录下的 JavaScript 文件并返回目录级报告。
+
+```js
+const { analyzeCwd } = require("@shined/ecmascript-compatibility");
+
+const report = analyzeCwd("dist/statics", ["chrome 60"], {
+  excludeEmptyReports: false,
+});
+```
+
+`excludeEmptyReports` 默认为 `true`，只影响 JS 返回值：`reports` 中会过滤掉 `diagnostics.length === 0` 的文件报告，`errors` 仍会保留。需要全量文件报告时传 `excludeEmptyReports: false`。
 
 ## 分析内存中的内容
 

@@ -33,11 +33,10 @@ fn main() -> ExitCode {
 
   println!("file              : {}", report.path().display());
   println!("targets           : {}", targets.join(", "));
-  println!("detected usages   : {}", report.detected_usage_count());
   println!("diagnostics       : {}", report.diagnostics().len());
 
   for diagnostic in report.diagnostics() {
-    let position = diagnostic.generated_position();
+    let position = diagnostic.position();
     println!();
     println!("{:?}", diagnostic.feature());
     println!(
@@ -48,7 +47,7 @@ fn main() -> ExitCode {
     print_original_location(diagnostic.source_mapping());
 
     for target_status in diagnostic.target_statuses() {
-      let target = target_status.target();
+      let target = report.targets()[target_status.target_index()];
       println!(
         "  target          : {:?} {} -> {}",
         target.runtime(),

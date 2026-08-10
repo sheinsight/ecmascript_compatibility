@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
       "{:?} at {:?}",
       diagnostic.feature(),
-      diagnostic.generated_position()
+      diagnostic.position()
     );
   }
 
@@ -79,17 +79,14 @@ cargo run -p ecmascript_compatibility --example analyze_file -- dist/app.js "chr
 ```js
 const { analyzeCwd } = require("@shined/ecmascript-compatibility");
 
-const report = analyzeCwd(process.cwd(), ["chrome 60", "safari 13"], {
-  sourceMaps: false,
-});
+const report = analyzeCwd(process.cwd(), ["chrome 60", "safari 13"]);
 
 console.log(report.fileCount);
 console.log(report.diagnosticCount);
 ```
 
-`analyzeCwd` 会并行分析文件。需要限制 worker 数时可以传
-`parallelism`；需要完整 Source Map 回源时把 `sourceMaps` 设为 `true` 或省略。
-如果调用方明确想跳过超大 bundle，可以额外传 `maxFileSizeBytes`，默认不会跳过。
+`analyzeCwd` 会并行分析文件。需要限制 worker 数时可以传 `parallelism`。
+默认只返回有诊断的文件；需要保留空诊断文件报告时可以传 `excludeEmptyReports: false`。
 
 本地构建 binding：
 
