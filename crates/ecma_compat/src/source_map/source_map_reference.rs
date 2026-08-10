@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 /// resolver 归一化后的 Source Map 文档引用。
 ///
-/// 这里描述“Source Map 文件/文档在哪里”，例如 `dist/main.js.map` 或内联
+/// 这里描述"Source Map 文件/文档在哪里"，例如 `dist/main.js.map` 或内联
 /// `data:` 文档。它不表示构建产物文件，也不表示 Source Map 内部的
 /// original source。
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -21,11 +21,23 @@ impl SourceMapReference {
   }
 
   pub fn local_file(path: impl Into<PathBuf>) -> Self {
-    Self::LocalFile(path.into())
+    Self::LocalFile(normalize_path(path.into()))
   }
 
   pub fn remote_url(url: impl Into<String>) -> Option<Self> {
     non_empty(url.into()).map(Self::RemoteUrl)
+  }
+}
+
+/// 将路径分隔符统一为 `/`，确保跨平台一致性。
+///
+/// Source Map 规范使用 URL 风格路径，因此无论宿主平台如何，
+/// 存储和输出的路径始终使用 `/`。
+fn normalize_path(path: PathBuf) -> PathBuf {
+  if cfg!(windows) {
+    PathBuf::from(path.to_string_lossy().replace('\\', "/"))
+  } else {
+    path
   }
 }
 
@@ -48,6 +60,17 @@ mod tests {
     assert_eq!(
       SourceMapReference::local_file("dist/main.js.map"),
       SourceMapReference::LocalFile(PathBuf::from("dist/main.js.map")),
+    );
+  }
+
+  #[test]
+  fn normalizes_backslashes_in_local_file_paths() {
+    let reference = SourceMapReference::local_file(PathBuf::from(
+      if cfg!(windows) { r"dist\app.js.map" } else { "dist/app.js.map" },
+    ));
+    assert_eq!(
+      reference,
+      SourceMapReference::LocalFile(PathBuf::from("dist/app.js.map")),
     );
   }
 }
