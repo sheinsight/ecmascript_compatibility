@@ -173,6 +173,7 @@ fn source_map_status_label(status: &SourceMapStatus) -> String {
       reference,
     } => format!("resolved via {discovery_kind:?} ({reference:?})"),
     SourceMapStatus::Unavailable(reason) => format!("unavailable ({reason:?})"),
+    SourceMapStatus::Skipped(reason) => format!("skipped ({reason:?})"),
   }
 }
 

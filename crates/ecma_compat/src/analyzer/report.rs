@@ -7,6 +7,29 @@ use crate::source_map::{
 
 use super::CompatDiagnostic;
 
+/// Source Map 解析策略。
+///
+/// 这个策略控制 analyzer 什么时候为文件尝试解析 Source Map。兼容性检测本身只依赖
+/// generated 代码；Source Map 是诊断定位增强信息，因此批量扫描可以按需跳过。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceMapPolicy {
+  /// 总是尝试解析 Source Map，保持完整文件级 Source Map 状态。
+  Always,
+  /// 只有存在最终 diagnostic 时才解析 Source Map。
+  DiagnosticsOnly,
+  /// 完全跳过 Source Map 解析，只返回 generated 位置。
+  Disabled,
+}
+
+/// Source Map 在分析中被主动跳过的原因。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceMapSkipReason {
+  /// 调用方显式关闭 Source Map。
+  Disabled,
+  /// 当前文件没有需要报告的 diagnostic。
+  NoDiagnostics,
+}
+
 /// 单文件分析各阶段耗时。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CompatAnalysisTiming {
@@ -73,13 +96,21 @@ pub enum SourceMapStatus {
     reference: SourceMapReference,
   },
   Unavailable(SourceMapUnavailable),
+  Skipped(SourceMapSkipReason),
 }
 
 impl SourceMapStatus {
   pub const fn unavailable_reason(&self) -> Option<&SourceMapUnavailable> {
     match self {
-      Self::Resolved { .. } => None,
+      Self::Resolved { .. } | Self::Skipped(_) => None,
       Self::Unavailable(reason) => Some(reason),
+    }
+  }
+
+  pub const fn skip_reason(&self) -> Option<SourceMapSkipReason> {
+    match self {
+      Self::Resolved { .. } | Self::Unavailable(_) => None,
+      Self::Skipped(reason) => Some(*reason),
     }
   }
 }

@@ -10,8 +10,8 @@ pub mod target;
 
 pub use analyzer::{
   CompatAnalysisError, CompatAnalysisTiming, CompatAnalyzer,
-  CompatAnalyzerBuilder, CompatDiagnostic, CompatReport, SourceMapStatus,
-  TargetCompatStatus,
+  CompatAnalyzerBuilder, CompatDiagnostic, CompatReport, SourceMapPolicy,
+  SourceMapSkipReason, SourceMapStatus, TargetCompatStatus,
 };
 pub use checker::{CompatStatus, evaluate};
 pub use database::{SupportRule, SyntaxCompatDatabase};

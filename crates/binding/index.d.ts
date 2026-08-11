@@ -4,6 +4,7 @@ export declare function checkFile(path: string, targets: Array<string>, options?
 
 export interface CheckFileOptions {
   includeSupportedTargets?: boolean
+  sourceMapPolicy?: string
 }
 
 export declare function checkFiles(patterns: Array<string>, targets: Array<string>, options?: CheckFilesOptions | undefined | null): CompatFilesReport
@@ -16,6 +17,7 @@ export interface CheckFilesOptions {
   ignoreHidden?: boolean
   parallelism?: number
   excludeEmptyReports?: boolean
+  sourceMapPolicy?: string
 }
 
 export interface CompatDiagnostic {

@@ -1,6 +1,6 @@
 use crate::source_map::DefaultSourceMapLoader;
 
-use super::CompatAnalyzer;
+use super::{CompatAnalyzer, SourceMapPolicy};
 
 /// `CompatAnalyzer` 的构造器。
 ///
@@ -9,6 +9,7 @@ use super::CompatAnalyzer;
 #[derive(Debug, Clone)]
 pub struct CompatAnalyzerBuilder<L = DefaultSourceMapLoader> {
   source_map_loader: L,
+  source_map_policy: SourceMapPolicy,
   include_supported_targets: bool,
 }
 
@@ -16,6 +17,7 @@ impl Default for CompatAnalyzerBuilder<DefaultSourceMapLoader> {
   fn default() -> Self {
     Self {
       source_map_loader: DefaultSourceMapLoader::default(),
+      source_map_policy: SourceMapPolicy::Always,
       include_supported_targets: false,
     }
   }
@@ -32,8 +34,21 @@ impl<L> CompatAnalyzerBuilder<L> {
   ) -> CompatAnalyzerBuilder<N> {
     CompatAnalyzerBuilder {
       source_map_loader,
+      source_map_policy: self.source_map_policy,
       include_supported_targets: self.include_supported_targets,
     }
+  }
+
+  /// 控制 Source Map 解析时机。
+  ///
+  /// 默认值是 `Always`，保持 library/CLI 的完整文件级 Source Map 状态。批量调用方
+  /// 可以选择 `DiagnosticsOnly`，避免为最终没有 diagnostic 的文件解析 Source Map。
+  pub const fn source_map_policy(
+    mut self,
+    source_map_policy: SourceMapPolicy,
+  ) -> Self {
+    self.source_map_policy = source_map_policy;
+    self
   }
 
   /// 控制 diagnostic 是否包含明确 Supported 的 target 状态。
@@ -51,6 +66,7 @@ impl<L> CompatAnalyzerBuilder<L> {
   pub fn build(self) -> CompatAnalyzer<L> {
     CompatAnalyzer::from_parts(
       self.source_map_loader,
+      self.source_map_policy,
       self.include_supported_targets,
     )
   }

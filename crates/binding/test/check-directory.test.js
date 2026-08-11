@@ -148,6 +148,67 @@ test('checkFiles can include reports without diagnostics', () => {
   assert.ok(report.reports.some((item) => item.diagnostics.length === 0))
 })
 
+test('checkFiles skips source maps for empty reports by default', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'ecmascript-compat-'))
+  const sourcePath = join(cwd, 'modern.js')
+  const sourceMapPath = `${sourcePath}.map`
+
+  writeFileSync(
+    sourcePath,
+    'const value = object?.field;\n//# sourceMappingURL=modern.js.map\n',
+  )
+  writeFileSync(
+    sourceMapPath,
+    JSON.stringify({
+      version: 3,
+      sources: ['src/input.js'],
+      names: [],
+      mappings: 'AAAA',
+    }),
+  )
+
+  const report = checkFiles(['*.js'], ['chrome 80'], {
+    cwd,
+    excludeEmptyReports: false,
+  })
+
+  assert.equal(report.counts.reportedFiles, 1)
+  assert.equal(report.reports[0].diagnostics.length, 0)
+  assert.equal(report.reports[0].sourceMapStatus.kind, 'skipped')
+  assert.equal(report.reports[0].sourceMapStatus.reason, 'NoDiagnostics')
+})
+
+test('checkFiles can always resolve source maps', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'ecmascript-compat-'))
+  const sourcePath = join(cwd, 'modern.js')
+  const sourceMapPath = `${sourcePath}.map`
+
+  writeFileSync(
+    sourcePath,
+    'const value = object?.field;\n//# sourceMappingURL=modern.js.map\n',
+  )
+  writeFileSync(
+    sourceMapPath,
+    JSON.stringify({
+      version: 3,
+      sources: ['src/input.js'],
+      names: [],
+      mappings: 'AAAA',
+    }),
+  )
+
+  const report = checkFiles(['*.js'], ['chrome 80'], {
+    cwd,
+    excludeEmptyReports: false,
+    sourceMapPolicy: 'always',
+  })
+
+  assert.equal(report.counts.reportedFiles, 1)
+  assert.equal(report.reports[0].diagnostics.length, 0)
+  assert.equal(report.reports[0].sourceMapStatus.kind, 'resolved')
+  assert.equal(report.reports[0].sourceMapStatus.reference, realpathSync(sourceMapPath))
+})
+
 test('checkFiles returns source map references as plain strings', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'ecmascript-compat-'))
   const sourcePath = join(cwd, 'bundle.js')

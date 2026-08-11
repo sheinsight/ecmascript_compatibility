@@ -9,7 +9,7 @@ use path_slash::PathExt;
 use ecma_compat::{
   CompatAnalysisTiming, CompatAnalyzer,
   CompatDiagnostic as RustCompatDiagnostic, CompatReport, CompatStatus,
-  Runtime, RuntimeRelease, RuntimeTarget as RustRuntimeTarget,
+  Runtime, RuntimeRelease, RuntimeTarget as RustRuntimeTarget, SourceMapPolicy,
   SourceMapStatus as RustSourceMapStatus, SourceSpan as RustSourceSpan,
   TargetCompatStatus as RustTargetCompatStatus,
   source_map::{
@@ -34,11 +34,13 @@ pub struct CheckFilesOptions {
   pub ignore_hidden: Option<bool>,
   pub parallelism: Option<u32>,
   pub exclude_empty_reports: Option<bool>,
+  pub source_map_policy: Option<String>,
 }
 
 #[napi(object)]
 pub struct CheckFileOptions {
   pub include_supported_targets: Option<bool>,
+  pub source_map_policy: Option<String>,
 }
 
 #[napi(object)]
@@ -166,6 +168,12 @@ pub fn check_files(
   let include_supported_targets = options
     .as_ref()
     .and_then(|options| options.include_supported_targets);
+  let source_map_policy = options
+    .as_ref()
+    .and_then(|options| options.source_map_policy.as_deref())
+    .map(parse_source_map_policy)
+    .transpose()?
+    .unwrap_or(SourceMapPolicy::DiagnosticsOnly);
   let parallelism = options.as_ref().and_then(|options| options.parallelism);
   let exclude_empty_reports = options
     .as_ref()
@@ -179,7 +187,7 @@ pub fn check_files(
     parallelism,
     exclude_empty_reports,
     elapsed_started_at,
-    &analyzer_from_options(include_supported_targets),
+    &analyzer_from_options(include_supported_targets, source_map_policy),
   )
 }
 
@@ -297,8 +305,15 @@ pub fn check_file(
   let include_supported_targets = options
     .as_ref()
     .and_then(|options| options.include_supported_targets);
+  let source_map_policy = options
+    .as_ref()
+    .and_then(|options| options.source_map_policy.as_deref())
+    .map(parse_source_map_policy)
+    .transpose()?
+    .unwrap_or(SourceMapPolicy::Always);
 
-  let analyzer = analyzer_from_options(include_supported_targets);
+  let analyzer =
+    analyzer_from_options(include_supported_targets, source_map_policy);
   let resolved_targets = analyzer
     .resolve_targets(targets.iter().map(String::as_str))
     .map_err(to_napi_error)?;
@@ -311,8 +326,10 @@ pub fn check_file(
 
 fn analyzer_from_options(
   include_supported_targets: Option<bool>,
+  source_map_policy: SourceMapPolicy,
 ) -> CompatAnalyzer {
   CompatAnalyzer::builder()
+    .source_map_policy(source_map_policy)
     .include_supported_targets(include_supported_targets.unwrap_or(false))
     .build()
 }
@@ -437,6 +454,12 @@ impl From<&RustSourceMapStatus> for SourceMapStatus {
       },
       RustSourceMapStatus::Unavailable(reason) => Self {
         kind: "unavailable".to_string(),
+        discovery_kind: None,
+        reference: None,
+        reason: Some(format!("{reason:?}")),
+      },
+      RustSourceMapStatus::Skipped(reason) => Self {
+        kind: "skipped".to_string(),
         discovery_kind: None,
         reference: None,
         reason: Some(format!("{reason:?}")),
@@ -581,6 +604,20 @@ fn status_label(status: CompatStatus) -> &'static str {
     CompatStatus::Unsupported => "unsupported",
     CompatStatus::Mixed => "mixed",
     CompatStatus::Unknown => "unknown",
+  }
+}
+
+fn parse_source_map_policy(value: &str) -> Result<SourceMapPolicy> {
+  match value {
+    "always" => Ok(SourceMapPolicy::Always),
+    "diagnosticsOnly" => Ok(SourceMapPolicy::DiagnosticsOnly),
+    "disabled" => Ok(SourceMapPolicy::Disabled),
+    _ => Err(Error::new(
+      Status::InvalidArg,
+      format!(
+        "invalid sourceMapPolicy `{value}`; expected `always`, `diagnosticsOnly`, or `disabled`"
+      ),
+    )),
   }
 }
 

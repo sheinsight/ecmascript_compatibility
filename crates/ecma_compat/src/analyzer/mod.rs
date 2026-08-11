@@ -14,7 +14,10 @@ use std::{
 pub use builder::CompatAnalyzerBuilder;
 pub use diagnostic::{CompatDiagnostic, TargetCompatStatus};
 pub use error::CompatAnalysisError;
-pub use report::{CompatAnalysisTiming, CompatReport, SourceMapStatus};
+pub use report::{
+  CompatAnalysisTiming, CompatReport, SourceMapPolicy, SourceMapSkipReason,
+  SourceMapStatus,
+};
 
 use crate::{
   CompatStatus, RuntimeTarget, SourceFile, SourceSpan, SyntaxCompatDatabase,
@@ -41,6 +44,7 @@ pub struct CompatAnalyzer<L = DefaultSourceMapLoader> {
   target_resolver: TargetResolver,
   source_map_resolver: SourceMapResolver,
   source_map_loader: L,
+  source_map_policy: SourceMapPolicy,
   include_supported_targets: bool,
 }
 
@@ -63,6 +67,7 @@ impl Default for CompatAnalyzer<DefaultSourceMapLoader> {
 impl<L> CompatAnalyzer<L> {
   pub(crate) fn from_parts(
     source_map_loader: L,
+    source_map_policy: SourceMapPolicy,
     include_supported_targets: bool,
   ) -> Self {
     Self {
@@ -71,6 +76,7 @@ impl<L> CompatAnalyzer<L> {
       target_resolver: TargetResolver,
       source_map_resolver: SourceMapResolver::new(),
       source_map_loader,
+      source_map_policy,
       include_supported_targets,
     }
   }
@@ -160,19 +166,6 @@ where
     let detection = self.detector.detect(&source)?;
     let parse_detect = parse_detect_started_at.elapsed();
 
-    // Source Map 是报告的增强信息，不是兼容性检测成立的前提。
-    // 因此 resolver 的结果先被折叠成文件级 `SourceMapStatus`，后面每条 usage
-    // 再根据这个状态决定是映射到 original source，还是保留 generated 位置并说明降级原因。
-    let source_map_started_at = Instant::now();
-    let source_map_result = self
-      .source_map_resolver
-      .resolve_source_file(&source, &self.source_map_loader);
-    let source_map_status =
-      source_map_status(source.path(), &source_map_result);
-    let resolved_source_map =
-      source_map_result.as_ref().ok().and_then(Option::as_ref);
-    let mut source_map = source_map_started_at.elapsed();
-
     let mut diagnostics = Vec::new();
     let mut target_evaluate = Duration::ZERO;
     let mut pending_diagnostics = Vec::new();
@@ -207,6 +200,30 @@ where
         ));
       }
     }
+
+    // Source Map 是报告的增强信息，不是兼容性检测成立的前提。先生成最终需要报告的
+    // diagnostics，再根据策略决定是否解析 Source Map，避免批量扫描为空报告做无效工作。
+    let source_map_started_at = Instant::now();
+    let source_map_skip_reason =
+      self.source_map_skip_reason(pending_diagnostics.is_empty());
+    let source_map_result = source_map_skip_reason.is_none().then(|| {
+      self
+        .source_map_resolver
+        .resolve_source_file(&source, &self.source_map_loader)
+    });
+    let source_map_status = source_map_result.as_ref().map_or_else(
+      || {
+        SourceMapStatus::Skipped(
+          source_map_skip_reason.expect("source map was skipped"),
+        )
+      },
+      |result| source_map_status(source.path(), result),
+    );
+    let resolved_source_map = source_map_result
+      .as_ref()
+      .and_then(|result| result.as_ref().ok())
+      .and_then(Option::as_ref);
+    let mut source_map = source_map_started_at.elapsed();
 
     let generated_position_started_at = Instant::now();
     let source_index = GeneratedSourceIndex::new(source.source_text());
@@ -248,9 +265,13 @@ where
           || {
             source_map_status.unavailable_reason().cloned().map_or_else(
               || {
-                SourceMapUnavailableOrLocation::Unavailable(
-                  SourceMapUnavailable::UnmappedPosition,
-                )
+                if source_map_status.skip_reason().is_some() {
+                  SourceMapUnavailableOrLocation::NotResolved
+                } else {
+                  SourceMapUnavailableOrLocation::Unavailable(
+                    SourceMapUnavailable::UnmappedPosition,
+                  )
+                }
               },
               SourceMapUnavailableOrLocation::Unavailable,
             )
@@ -284,6 +305,9 @@ where
         SourceMapUnavailableOrLocation::Unavailable(reason) => {
           SourceMapUnavailableOrLocation::Unavailable(reason)
         }
+        SourceMapUnavailableOrLocation::NotResolved => {
+          SourceMapUnavailableOrLocation::NotResolved
+        }
       };
 
       // 一条 diagnostic 对应一个 syntax feature usage。多个 target 的结果聚合在
@@ -314,6 +338,20 @@ where
       ),
       timing,
     ))
+  }
+
+  const fn source_map_skip_reason(
+    &self,
+    pending_diagnostics_is_empty: bool,
+  ) -> Option<SourceMapSkipReason> {
+    match self.source_map_policy {
+      SourceMapPolicy::Always => None,
+      SourceMapPolicy::DiagnosticsOnly if pending_diagnostics_is_empty => {
+        Some(SourceMapSkipReason::NoDiagnostics)
+      }
+      SourceMapPolicy::DiagnosticsOnly => None,
+      SourceMapPolicy::Disabled => Some(SourceMapSkipReason::Disabled),
+    }
   }
 }
 
@@ -346,6 +384,7 @@ impl PendingDiagnostic {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum SourceMapUnavailableOrLocation {
+  NotResolved,
   Unavailable(SourceMapUnavailable),
   Location(crate::source_map::SourceLocation),
 }
@@ -355,6 +394,7 @@ impl SourceMapUnavailableOrLocation {
   // 最终进入报告时再统一转回领域模型 `SourceMapping`，避免在主流程里重复 match。
   fn into_source_mapping(self) -> crate::source_map::SourceMapping {
     match self {
+      Self::NotResolved => crate::source_map::SourceMapping::NotResolved,
       Self::Unavailable(reason) => {
         crate::source_map::SourceMapping::Unavailable(reason)
       }
@@ -459,6 +499,74 @@ mod tests {
     let report = analyzer.analyze_source(source, &targets).unwrap();
 
     assert!(report.diagnostics().is_empty());
+  }
+
+  #[test]
+  fn diagnostics_only_policy_skips_source_map_without_diagnostics() {
+    struct PanicSourceMapLoader;
+
+    impl SourceMapLoader for PanicSourceMapLoader {
+      fn load(
+        &self,
+        _reference: &SourceMapReference,
+      ) -> Result<Vec<u8>, SourceMapLoadError> {
+        panic!("source map loader should not be called")
+      }
+    }
+
+    let source = SourceFile::javascript(
+      "dist/input.js",
+      "const name = user?.name;\n//# sourceMappingURL=input.js.map",
+    );
+
+    let analyzer = CompatAnalyzer::builder()
+      .source_map_loader(PanicSourceMapLoader)
+      .source_map_policy(SourceMapPolicy::DiagnosticsOnly)
+      .build();
+    let targets = analyzer.resolve_targets(["chrome 80"]).unwrap();
+    let report = analyzer.analyze_source(source, &targets).unwrap();
+
+    assert!(report.diagnostics().is_empty());
+    assert_eq!(
+      report.source_map_status(),
+      &SourceMapStatus::Skipped(SourceMapSkipReason::NoDiagnostics),
+    );
+  }
+
+  #[test]
+  fn disabled_source_map_policy_keeps_generated_diagnostics() {
+    struct PanicSourceMapLoader;
+
+    impl SourceMapLoader for PanicSourceMapLoader {
+      fn load(
+        &self,
+        _reference: &SourceMapReference,
+      ) -> Result<Vec<u8>, SourceMapLoadError> {
+        panic!("source map loader should not be called")
+      }
+    }
+
+    let source = SourceFile::javascript(
+      "dist/input.js",
+      "const name = user?.name;\n//# sourceMappingURL=input.js.map",
+    );
+
+    let analyzer = CompatAnalyzer::builder()
+      .source_map_loader(PanicSourceMapLoader)
+      .source_map_policy(SourceMapPolicy::Disabled)
+      .build();
+    let targets = analyzer.resolve_targets(["chrome 79"]).unwrap();
+    let report = analyzer.analyze_source(source, &targets).unwrap();
+
+    assert_eq!(
+      report.source_map_status(),
+      &SourceMapStatus::Skipped(SourceMapSkipReason::Disabled),
+    );
+    assert_eq!(report.diagnostics().len(), 1);
+    assert_eq!(
+      report.diagnostics()[0].source_mapping(),
+      &crate::source_map::SourceMapping::NotResolved,
+    );
   }
 
   #[test]
