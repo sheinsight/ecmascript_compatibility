@@ -13,7 +13,7 @@ const filesOptions = {
   // excludeEmptyReports:true
 }
 
-const filesReport = checkFiles(['**/*.{js}'], targets, {
+const filesReport = checkFiles(['**/*.js'], targets, {
   ...filesOptions,
   cwd,
 })
