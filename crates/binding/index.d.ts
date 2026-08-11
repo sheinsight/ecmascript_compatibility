@@ -5,6 +5,10 @@ export declare function checkDirectory(cwd: string, targets: Array<string>, opti
 export interface CheckDirectoryOptions {
   includeSupportedTargets?: boolean
   extensions?: Array<string>
+  includeGlobs?: Array<string>
+  excludeGlobs?: Array<string>
+  respectGitignore?: boolean
+  ignoreHidden?: boolean
   parallelism?: number
   excludeEmptyReports?: boolean
 }

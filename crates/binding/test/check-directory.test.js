@@ -47,6 +47,43 @@ test('checkDirectory accepts custom extensions', () => {
   assert.deepEqual(paths, ['component.jsx'])
 })
 
+test('checkDirectory filters files with include globs', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'ecmascript-compat-'))
+  mkdirSync(join(cwd, 'src'))
+  mkdirSync(join(cwd, 'dist'))
+
+  writeFileSync(join(cwd, 'src/app.js'), 'const value = item?.name;\n')
+  writeFileSync(join(cwd, 'dist/app.js'), 'const value = item?.name;\n')
+
+  const report = checkDirectory(cwd, ['chrome 60'], {
+    includeGlobs: ['src/**/*.js'],
+  })
+  const paths = report.reports.map((item) =>
+    relative(report.cwd, item.path).split(sep).join('/'),
+  )
+
+  assert.equal(report.fileCount, 1)
+  assert.deepEqual(paths, ['src/app.js'])
+})
+
+test('checkDirectory filters files with exclude globs', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'ecmascript-compat-'))
+  mkdirSync(join(cwd, 'src'))
+
+  writeFileSync(join(cwd, 'src/app.js'), 'const value = item?.name;\n')
+  writeFileSync(join(cwd, 'src/app.test.js'), 'const value = item?.name;\n')
+
+  const report = checkDirectory(cwd, ['chrome 60'], {
+    excludeGlobs: ['**/*.test.js'],
+  })
+  const paths = report.reports.map((item) =>
+    relative(report.cwd, item.path).split(sep).join('/'),
+  )
+
+  assert.equal(report.fileCount, 1)
+  assert.deepEqual(paths, ['src/app.js'])
+})
+
 test('checkDirectory excludes reports without diagnostics by default', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'ecmascript-compat-'))
   writeFileSync(join(cwd, 'modern.js'), 'const value = object?.field;\n')

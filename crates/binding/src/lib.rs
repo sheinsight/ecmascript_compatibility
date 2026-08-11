@@ -1,5 +1,4 @@
 use std::{
-  fs,
   path::{Path, PathBuf},
   time::{Duration, Instant},
 };
@@ -21,12 +20,18 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use rayon::prelude::*;
 
-const DEFAULT_EXTENSIONS: &[&str] = &["js", "mjs", "cjs", "jsx"];
+mod file_discovery;
+
+use file_discovery::{FileDiscoveryOptions, discover_files, normalize_cwd};
 
 #[napi(object)]
 pub struct CheckDirectoryOptions {
   pub include_supported_targets: Option<bool>,
   pub extensions: Option<Vec<String>>,
+  pub include_globs: Option<Vec<String>>,
+  pub exclude_globs: Option<Vec<String>>,
+  pub respect_gitignore: Option<bool>,
+  pub ignore_hidden: Option<bool>,
   pub parallelism: Option<u32>,
   pub exclude_empty_reports: Option<bool>,
 }
@@ -129,13 +134,26 @@ pub fn check_directory(
   options: Option<CheckDirectoryOptions>,
 ) -> Result<CompatDirectoryReport> {
   let elapsed_started_at = Instant::now();
-  let cwd = normalize_cwd(cwd)?;
-  let extensions = options
-    .as_ref()
-    .and_then(|options| options.extensions.as_ref())
-    .map_or_else(default_extensions, |extensions| {
-      normalize_extensions(extensions)
-    });
+  let cwd = normalize_cwd(cwd).map_err(to_napi_error)?;
+  let discovery_options = FileDiscoveryOptions::new(
+    options
+      .as_ref()
+      .and_then(|options| options.extensions.as_deref()),
+    options
+      .as_ref()
+      .and_then(|options| options.include_globs.as_deref()),
+    options
+      .as_ref()
+      .and_then(|options| options.exclude_globs.as_deref()),
+    options
+      .as_ref()
+      .and_then(|options| options.respect_gitignore)
+      .unwrap_or(false),
+    options
+      .as_ref()
+      .and_then(|options| options.ignore_hidden)
+      .unwrap_or(false),
+  );
   let include_supported_targets = options
     .as_ref()
     .and_then(|options| options.include_supported_targets);
@@ -147,7 +165,7 @@ pub fn check_directory(
 
   check_directory_with_analyzer(
     &cwd,
-    &extensions,
+    &discovery_options,
     &targets,
     parallelism,
     exclude_empty_reports,
@@ -158,7 +176,7 @@ pub fn check_directory(
 
 fn check_directory_with_analyzer<L>(
   cwd: &Path,
-  extensions: &[String],
+  discovery_options: &FileDiscoveryOptions,
   targets: &[String],
   parallelism: Option<u32>,
   exclude_empty_reports: bool,
@@ -168,7 +186,7 @@ fn check_directory_with_analyzer<L>(
 where
   L: SourceMapLoader + Sync,
 {
-  let files = discover_js_files(cwd, extensions)?;
+  let files = discover_files(cwd, discovery_options).map_err(to_napi_error)?;
   let resolved_targets = analyzer
     .resolve_targets(targets.iter().map(String::as_str))
     .map_err(to_napi_error)?;
@@ -281,89 +299,6 @@ fn analyzer_from_options(
   CompatAnalyzer::builder()
     .include_supported_targets(include_supported_targets.unwrap_or(false))
     .build()
-}
-
-fn normalize_cwd(cwd: String) -> Result<PathBuf> {
-  let path = PathBuf::from(cwd);
-  let metadata = fs::metadata(&path).map_err(to_napi_error)?;
-
-  if !metadata.is_dir() {
-    return Err(Error::new(
-      Status::InvalidArg,
-      format!("cwd is not a directory: `{}`", path.to_slash_lossy()),
-    ));
-  }
-
-  path.canonicalize().map_err(to_napi_error)
-}
-
-fn discover_js_files(
-  cwd: &Path,
-  extensions: &[String],
-) -> Result<Vec<PathBuf>> {
-  let mut files = Vec::new();
-  collect_js_files(cwd, extensions, &mut files)?;
-  files.sort();
-  Ok(files)
-}
-
-fn collect_js_files(
-  dir: &Path,
-  extensions: &[String],
-  files: &mut Vec<PathBuf>,
-) -> Result<()> {
-  for entry in fs::read_dir(dir).map_err(to_napi_error)? {
-    let entry = entry.map_err(to_napi_error)?;
-    let path = entry.path();
-    let file_type = entry.file_type().map_err(to_napi_error)?;
-
-    if file_type.is_dir() {
-      collect_js_files(&path, extensions, files)?;
-    } else if file_type.is_file() && has_extension(&path, extensions) {
-      files.push(path);
-    }
-  }
-
-  Ok(())
-}
-
-fn has_extension(path: &Path, extensions: &[String]) -> bool {
-  path
-    .extension()
-    .and_then(|extension| extension.to_str())
-    .is_some_and(|extension| {
-      extensions
-        .iter()
-        .any(|expected| extension.eq_ignore_ascii_case(expected))
-    })
-}
-
-fn default_extensions() -> Vec<String> {
-  DEFAULT_EXTENSIONS
-    .iter()
-    .map(|extension| (*extension).to_string())
-    .collect()
-}
-
-fn normalize_extensions(extensions: &[String]) -> Vec<String> {
-  let normalized = extensions
-    .iter()
-    .filter_map(|extension| {
-      let extension = extension.trim().trim_start_matches('.');
-
-      if extension.is_empty() {
-        None
-      } else {
-        Some(extension.to_ascii_lowercase())
-      }
-    })
-    .collect::<Vec<_>>();
-
-  if normalized.is_empty() {
-    default_extensions()
-  } else {
-    normalized
-  }
 }
 
 impl CompatFileReport {
