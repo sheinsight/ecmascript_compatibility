@@ -35,7 +35,7 @@
 		"version": "napi version"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.3.1",
+    "@napi-rs/cli": "^3.2.0",
     "clean-pkg-json": "^2.0.0"
   },
   "license": "MIT"
