@@ -78,12 +78,12 @@ for diagnostic in report.diagnostics() {
 
 ## Node.js 目录分析
 
-napi binding 提供 `analyzeCwd(cwd, targets, options)`，会递归扫描目录下的 JavaScript 文件并返回目录级报告。
+napi binding 提供 `checkDirectory(cwd, targets, options)`，会递归扫描目录下的 JavaScript 文件并返回目录级报告。
 
 ```js
-const { analyzeCwd } = require("@shined/ecmascript-compatibility");
+const { checkDirectory } = require("@shined/ecmascript-compatibility");
 
-const report = analyzeCwd("dist/statics", ["chrome 60"], {
+const report = checkDirectory("dist/statics", ["chrome 60"], {
   excludeEmptyReports: false,
 });
 ```

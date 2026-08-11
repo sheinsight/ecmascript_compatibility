@@ -700,5 +700,5 @@ if (!nativeBinding) {
 }
 
 module.exports = nativeBinding
-module.exports.analyzeCwd = nativeBinding.analyzeCwd
-module.exports.analyzePath = nativeBinding.analyzePath
+module.exports.checkDirectory = nativeBinding.checkDirectory
+module.exports.checkFile = nativeBinding.checkFile

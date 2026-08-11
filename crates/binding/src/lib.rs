@@ -7,12 +7,14 @@ use std::{
 use path_slash::PathExt;
 
 use ecma_compat::{
-  CompatAnalysisTiming, CompatAnalyzer, CompatDiagnostic, CompatReport,
-  CompatStatus, Runtime, RuntimeRelease, RuntimeTarget, SourceMapStatus,
-  SourceSpan, TargetCompatStatus,
+  CompatAnalysisTiming, CompatAnalyzer,
+  CompatDiagnostic as RustCompatDiagnostic, CompatReport, CompatStatus,
+  Runtime, RuntimeRelease, RuntimeTarget as RustRuntimeTarget,
+  SourceMapStatus as RustSourceMapStatus, SourceSpan as RustSourceSpan,
+  TargetCompatStatus as RustTargetCompatStatus,
   source_map::{
     SourceIdentity, SourceLocation, SourceMapLoader, SourceMapReference,
-    SourceMapping, SourcePosition,
+    SourceMapping as RustSourceMapping, SourcePosition as RustSourcePosition,
   },
 };
 use napi::bindgen_prelude::*;
@@ -22,7 +24,7 @@ use rayon::prelude::*;
 const DEFAULT_EXTENSIONS: &[&str] = &["js", "mjs", "cjs", "jsx"];
 
 #[napi(object)]
-pub struct AnalyzeCwdOptions {
+pub struct CheckDirectoryOptions {
   pub include_supported_targets: Option<bool>,
   pub extensions: Option<Vec<String>>,
   pub parallelism: Option<u32>,
@@ -30,36 +32,36 @@ pub struct AnalyzeCwdOptions {
 }
 
 #[napi(object)]
-pub struct AnalyzePathOptions {
+pub struct CheckFileOptions {
   pub include_supported_targets: Option<bool>,
 }
 
 #[napi(object)]
-pub struct JsCompatDirectoryReport {
+pub struct CompatDirectoryReport {
   pub cwd: String,
-  pub targets: Vec<JsRuntimeTarget>,
+  pub targets: Vec<RuntimeTarget>,
   pub file_count: u32,
   pub diagnostic_count: u32,
-  pub reports: Vec<JsCompatFileReport>,
-  pub errors: Vec<JsCompatFileError>,
-  pub timing: JsDirectoryTiming,
+  pub reports: Vec<CompatFileReport>,
+  pub errors: Vec<CompatFileError>,
+  pub timing: DirectoryTiming,
 }
 
 #[napi(object)]
-pub struct JsCompatFileError {
+pub struct CompatFileError {
   pub path: String,
   pub message: String,
 }
 
 #[napi(object)]
-pub struct JsCompatFileReport {
+pub struct CompatFileReport {
   pub path: String,
-  pub source_map_status: JsSourceMapStatus,
-  pub diagnostics: Vec<JsCompatDiagnostic>,
+  pub source_map_status: SourceMapStatus,
+  pub diagnostics: Vec<CompatDiagnostic>,
 }
 
 #[napi(object)]
-pub struct JsDirectoryTiming {
+pub struct DirectoryTiming {
   pub elapsed_ms: f64,
   pub read_ms: f64,
   pub parse_detect_ms: f64,
@@ -71,13 +73,13 @@ pub struct JsDirectoryTiming {
 }
 
 #[napi(object)]
-pub struct JsRuntimeTarget {
+pub struct RuntimeTarget {
   pub runtime: String,
   pub release: String,
 }
 
 #[napi(object)]
-pub struct JsSourceMapStatus {
+pub struct SourceMapStatus {
   pub kind: String,
   pub discovery_kind: Option<String>,
   pub reference: Option<String>,
@@ -85,47 +87,47 @@ pub struct JsSourceMapStatus {
 }
 
 #[napi(object)]
-pub struct JsCompatDiagnostic {
+pub struct CompatDiagnostic {
   pub feature: String,
-  pub span: JsSourceSpan,
-  pub position: JsSourcePosition,
-  pub source_mapping: JsSourceMapping,
-  pub target_statuses: Vec<JsTargetCompatStatus>,
+  pub span: SourceSpan,
+  pub position: SourcePosition,
+  pub source_mapping: SourceMapping,
+  pub target_statuses: Vec<TargetCompatStatus>,
 }
 
 #[napi(object)]
-pub struct JsSourceSpan {
+pub struct SourceSpan {
   pub start: u32,
   pub end: u32,
 }
 
 #[napi(object)]
-pub struct JsSourcePosition {
+pub struct SourcePosition {
   pub line: u32,
   pub column: u32,
 }
 
 #[napi(object)]
-pub struct JsSourceMapping {
+pub struct SourceMapping {
   pub kind: String,
   pub source: Option<String>,
-  pub start: Option<JsSourcePosition>,
-  pub end: Option<JsSourcePosition>,
+  pub start: Option<SourcePosition>,
+  pub end: Option<SourcePosition>,
   pub reason: Option<String>,
 }
 
 #[napi(object)]
-pub struct JsTargetCompatStatus {
+pub struct TargetCompatStatus {
   pub target_index: u32,
   pub status: String,
 }
 
-#[napi(js_name = "analyzeCwd")]
-pub fn analyze_cwd(
+#[napi(js_name = "checkDirectory")]
+pub fn check_directory(
   cwd: String,
   targets: Vec<String>,
-  options: Option<AnalyzeCwdOptions>,
-) -> Result<JsCompatDirectoryReport> {
+  options: Option<CheckDirectoryOptions>,
+) -> Result<CompatDirectoryReport> {
   let elapsed_started_at = Instant::now();
   let cwd = normalize_cwd(cwd)?;
   let extensions = options
@@ -143,7 +145,7 @@ pub fn analyze_cwd(
     .and_then(|options| options.exclude_empty_reports)
     .unwrap_or(true);
 
-  analyze_cwd_with_analyzer(
+  check_directory_with_analyzer(
     &cwd,
     &extensions,
     &targets,
@@ -154,7 +156,7 @@ pub fn analyze_cwd(
   )
 }
 
-fn analyze_cwd_with_analyzer<L>(
+fn check_directory_with_analyzer<L>(
   cwd: &Path,
   extensions: &[String],
   targets: &[String],
@@ -162,7 +164,7 @@ fn analyze_cwd_with_analyzer<L>(
   exclude_empty_reports: bool,
   elapsed_started_at: Instant,
   analyzer: &CompatAnalyzer<L>,
-) -> Result<JsCompatDirectoryReport>
+) -> Result<CompatDirectoryReport>
 where
   L: SourceMapLoader + Sync,
 {
@@ -203,7 +205,7 @@ where
     .iter()
     .map(|entry| entry.report.diagnostics.len() as u32)
     .sum();
-  let timing = JsDirectoryTiming::from_file_timings(
+  let timing = DirectoryTiming::from_file_timings(
     elapsed_started_at.elapsed(),
     &analyzed_reports,
   );
@@ -212,7 +214,7 @@ where
     .map(|entry| entry.report)
     .collect::<Vec<_>>();
 
-  Ok(JsCompatDirectoryReport {
+  Ok(CompatDirectoryReport {
     cwd: path_label(cwd),
     targets: resolved_targets.iter().copied().map(Into::into).collect(),
     file_count: reports.len() as u32,
@@ -225,7 +227,7 @@ where
 
 fn analyze_files_in_parallel<L>(
   files: &[PathBuf],
-  targets: &[RuntimeTarget],
+  targets: &[RustRuntimeTarget],
   analyzer: &CompatAnalyzer<L>,
 ) -> Vec<FileAnalysisEntry>
 where
@@ -238,7 +240,7 @@ where
         Ok((report, timing)) => FileAnalysisEntry::Report(
           JsAnalyzedFileReport::from_report_and_timing(report, timing),
         ),
-        Err(error) => FileAnalysisEntry::Error(JsCompatFileError {
+        Err(error) => FileAnalysisEntry::Error(CompatFileError {
           path: path_label(path),
           message: error.to_string(),
         }),
@@ -249,15 +251,15 @@ where
 
 enum FileAnalysisEntry {
   Report(JsAnalyzedFileReport),
-  Error(JsCompatFileError),
+  Error(CompatFileError),
 }
 
-#[napi(js_name = "analyzePath")]
-pub fn analyze_path(
+#[napi(js_name = "checkFile")]
+pub fn check_file(
   path: String,
   targets: Vec<String>,
-  options: Option<AnalyzePathOptions>,
-) -> Result<JsCompatFileReport> {
+  options: Option<CheckFileOptions>,
+) -> Result<CompatFileReport> {
   let include_supported_targets = options
     .as_ref()
     .and_then(|options| options.include_supported_targets);
@@ -269,7 +271,7 @@ pub fn analyze_path(
 
   analyzer
     .analyze_path(path, &resolved_targets)
-    .map(JsCompatFileReport::from_report)
+    .map(CompatFileReport::from_report)
     .map_err(to_napi_error)
 }
 
@@ -364,22 +366,22 @@ fn normalize_extensions(extensions: &[String]) -> Vec<String> {
   }
 }
 
-impl JsCompatFileReport {
+impl CompatFileReport {
   fn from_report(report: CompatReport) -> Self {
-    JsCompatFileReport {
+    CompatFileReport {
       path: path_label(report.path()),
       source_map_status: report.source_map_status().into(),
       diagnostics: report
         .diagnostics()
         .iter()
-        .map(JsCompatDiagnostic::from)
+        .map(CompatDiagnostic::from)
         .collect(),
     }
   }
 }
 
 struct JsAnalyzedFileReport {
-  report: JsCompatFileReport,
+  report: CompatFileReport,
   timing: FileTiming,
 }
 
@@ -400,13 +402,13 @@ impl JsAnalyzedFileReport {
   ) -> Self {
     let dto_conversion_started_at = Instant::now();
 
-    let report = JsCompatFileReport {
+    let report = CompatFileReport {
       path: path_label(report.path()),
       source_map_status: report.source_map_status().into(),
       diagnostics: report
         .diagnostics()
         .iter()
-        .map(JsCompatDiagnostic::from)
+        .map(CompatDiagnostic::from)
         .collect(),
     };
     let mut timing = FileTiming {
@@ -425,7 +427,7 @@ impl JsAnalyzedFileReport {
   }
 }
 
-impl JsDirectoryTiming {
+impl DirectoryTiming {
   fn from_file_timings(
     elapsed: Duration,
     reports: &[JsAnalyzedFileReport],
@@ -461,8 +463,8 @@ impl JsDirectoryTiming {
   }
 }
 
-impl From<RuntimeTarget> for JsRuntimeTarget {
-  fn from(target: RuntimeTarget) -> Self {
+impl From<RustRuntimeTarget> for RuntimeTarget {
+  fn from(target: RustRuntimeTarget) -> Self {
     Self {
       runtime: runtime_label(target.runtime()).to_string(),
       release: release_label(target.release()),
@@ -470,10 +472,10 @@ impl From<RuntimeTarget> for JsRuntimeTarget {
   }
 }
 
-impl From<&SourceMapStatus> for JsSourceMapStatus {
-  fn from(status: &SourceMapStatus) -> Self {
+impl From<&RustSourceMapStatus> for SourceMapStatus {
+  fn from(status: &RustSourceMapStatus) -> Self {
     match status {
-      SourceMapStatus::Resolved {
+      RustSourceMapStatus::Resolved {
         discovery_kind,
         reference,
       } => Self {
@@ -482,7 +484,7 @@ impl From<&SourceMapStatus> for JsSourceMapStatus {
         reference: Some(source_map_reference_label(reference)),
         reason: None,
       },
-      SourceMapStatus::Unavailable(reason) => Self {
+      RustSourceMapStatus::Unavailable(reason) => Self {
         kind: "unavailable".to_string(),
         discovery_kind: None,
         reference: None,
@@ -492,8 +494,8 @@ impl From<&SourceMapStatus> for JsSourceMapStatus {
   }
 }
 
-impl From<&CompatDiagnostic> for JsCompatDiagnostic {
-  fn from(diagnostic: &CompatDiagnostic) -> Self {
+impl From<&RustCompatDiagnostic> for CompatDiagnostic {
+  fn from(diagnostic: &RustCompatDiagnostic) -> Self {
     Self {
       feature: format!("{:?}", diagnostic.feature()),
       span: diagnostic.span().into(),
@@ -509,8 +511,8 @@ impl From<&CompatDiagnostic> for JsCompatDiagnostic {
   }
 }
 
-impl From<SourceSpan> for JsSourceSpan {
-  fn from(span: SourceSpan) -> Self {
+impl From<RustSourceSpan> for SourceSpan {
+  fn from(span: RustSourceSpan) -> Self {
     Self {
       start: span.start(),
       end: span.end(),
@@ -518,8 +520,8 @@ impl From<SourceSpan> for JsSourceSpan {
   }
 }
 
-impl From<SourcePosition> for JsSourcePosition {
-  fn from(position: SourcePosition) -> Self {
+impl From<RustSourcePosition> for SourcePosition {
+  fn from(position: RustSourcePosition) -> Self {
     Self {
       line: position.line(),
       column: position.col(),
@@ -527,18 +529,18 @@ impl From<SourcePosition> for JsSourcePosition {
   }
 }
 
-impl From<&SourceMapping> for JsSourceMapping {
-  fn from(mapping: &SourceMapping) -> Self {
+impl From<&RustSourceMapping> for SourceMapping {
+  fn from(mapping: &RustSourceMapping) -> Self {
     match mapping {
-      SourceMapping::NotResolved => Self {
+      RustSourceMapping::NotResolved => Self {
         kind: "notResolved".to_string(),
         source: None,
         start: None,
         end: None,
         reason: None,
       },
-      SourceMapping::Mapped(location) => source_location_mapping(location),
-      SourceMapping::Unavailable(reason) => Self {
+      RustSourceMapping::Mapped(location) => source_location_mapping(location),
+      RustSourceMapping::Unavailable(reason) => Self {
         kind: "unavailable".to_string(),
         source: None,
         start: None,
@@ -549,8 +551,8 @@ impl From<&SourceMapping> for JsSourceMapping {
   }
 }
 
-impl From<TargetCompatStatus> for JsTargetCompatStatus {
-  fn from(target_status: TargetCompatStatus) -> Self {
+impl From<RustTargetCompatStatus> for TargetCompatStatus {
+  fn from(target_status: RustTargetCompatStatus) -> Self {
     Self {
       target_index: target_status.target_index() as u32,
       status: status_label(target_status.status()).to_string(),
@@ -558,8 +560,8 @@ impl From<TargetCompatStatus> for JsTargetCompatStatus {
   }
 }
 
-fn source_location_mapping(location: &SourceLocation) -> JsSourceMapping {
-  JsSourceMapping {
+fn source_location_mapping(location: &SourceLocation) -> SourceMapping {
+  SourceMapping {
     kind: "mapped".to_string(),
     source: Some(source_identity_label(location.source())),
     start: Some(location.start().into()),

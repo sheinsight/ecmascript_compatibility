@@ -4,9 +4,9 @@ const { tmpdir } = require('node:os')
 const { join, relative, sep } = require('node:path')
 const test = require('node:test')
 
-const { analyzeCwd } = require('..')
+const { checkDirectory } = require('..')
 
-test('analyzeCwd recursively scans JavaScript files under cwd', () => {
+test('checkDirectory recursively scans JavaScript files under cwd', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'ecmascript-compat-'))
   mkdirSync(join(cwd, 'src'))
 
@@ -21,7 +21,7 @@ test('analyzeCwd recursively scans JavaScript files under cwd', () => {
   )
   writeFileSync(join(cwd, 'src/ignored.ts'), 'const ignored: number = 1;\n')
 
-  const report = analyzeCwd(cwd, ['chrome 60'])
+  const report = checkDirectory(cwd, ['chrome 60'])
   const paths = report.reports.map((item) =>
     relative(report.cwd, item.path).split(sep).join('/'),
   )
@@ -33,12 +33,12 @@ test('analyzeCwd recursively scans JavaScript files under cwd', () => {
   assert.ok(report.reports.every((item) => !('timing' in item)))
 })
 
-test('analyzeCwd accepts custom extensions', () => {
+test('checkDirectory accepts custom extensions', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'ecmascript-compat-'))
   writeFileSync(cwd + '/component.jsx', 'export const value = item?.name;\n')
   writeFileSync(cwd + '/ignored.js', 'const value = item?.name;\n')
 
-  const report = analyzeCwd(cwd, ['chrome 60'], { extensions: ['.jsx'] })
+  const report = checkDirectory(cwd, ['chrome 60'], { extensions: ['.jsx'] })
   const paths = report.reports.map((item) =>
     relative(report.cwd, item.path).split(sep).join('/'),
   )
@@ -47,12 +47,12 @@ test('analyzeCwd accepts custom extensions', () => {
   assert.deepEqual(paths, ['component.jsx'])
 })
 
-test('analyzeCwd excludes reports without diagnostics by default', () => {
+test('checkDirectory excludes reports without diagnostics by default', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'ecmascript-compat-'))
   writeFileSync(join(cwd, 'modern.js'), 'const value = object?.field;\n')
   writeFileSync(join(cwd, 'legacy.js'), 'const value = object.field;\n')
 
-  const report = analyzeCwd(cwd, ['chrome 60'])
+  const report = checkDirectory(cwd, ['chrome 60'])
   const paths = report.reports.map((item) =>
     relative(report.cwd, item.path).split(sep).join('/'),
   )
@@ -62,12 +62,12 @@ test('analyzeCwd excludes reports without diagnostics by default', () => {
   assert.ok(report.reports.every((item) => item.diagnostics.length > 0))
 })
 
-test('analyzeCwd can include reports without diagnostics', () => {
+test('checkDirectory can include reports without diagnostics', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'ecmascript-compat-'))
   writeFileSync(join(cwd, 'modern.js'), 'const value = object?.field;\n')
   writeFileSync(join(cwd, 'legacy.js'), 'const value = object.field;\n')
 
-  const report = analyzeCwd(cwd, ['chrome 60'], {
+  const report = checkDirectory(cwd, ['chrome 60'], {
     excludeEmptyReports: false,
   })
   const paths = report.reports.map((item) =>
@@ -79,7 +79,7 @@ test('analyzeCwd can include reports without diagnostics', () => {
   assert.ok(report.reports.some((item) => item.diagnostics.length === 0))
 })
 
-test('analyzeCwd returns source map references as plain strings', () => {
+test('checkDirectory returns source map references as plain strings', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'ecmascript-compat-'))
   const sourcePath = join(cwd, 'bundle.js')
   const sourceMapPath = `${sourcePath}.map`
@@ -98,7 +98,7 @@ test('analyzeCwd returns source map references as plain strings', () => {
     }),
   )
 
-  const report = analyzeCwd(cwd, ['chrome 60'])
+  const report = checkDirectory(cwd, ['chrome 60'])
 
   assert.equal(report.fileCount, 1)
   assert.equal(report.reports[0].sourceMapStatus.kind, 'resolved')

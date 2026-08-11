@@ -76,15 +76,15 @@ cargo run -p ecmascript_compatibility --example analyze_file -- dist/app.js "chr
 目录下的 `.js`、`.mjs`、`.cjs` 和 `.jsx` 文件并批量分析：
 
 ```js
-const { analyzeCwd } = require("@shined/ecmascript-compatibility");
+const { checkDirectory } = require("@shined/ecmascript-compatibility");
 
-const report = analyzeCwd(process.cwd(), ["chrome 60", "safari 13"]);
+const report = checkDirectory(process.cwd(), ["chrome 60", "safari 13"]);
 
 console.log(report.fileCount);
 console.log(report.diagnosticCount);
 ```
 
-`analyzeCwd` 会并行分析文件。需要限制 worker 数时可以传 `parallelism`。
+`checkDirectory` 会并行分析文件。需要限制 worker 数时可以传 `parallelism`。
 默认只返回有诊断的文件；需要保留空诊断文件报告时可以传 `excludeEmptyReports: false`。
 
 本地构建 binding：
