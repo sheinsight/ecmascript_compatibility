@@ -9,7 +9,7 @@ importers:
   .:
     devDependencies:
       '@napi-rs/cli':
-        specifier: ^3.2.0
+        specifier: ^3.4.1
         version: 3.8.2(@emnapi/runtime@1.11.2)
       clean-pkg-json:
         specifier: ^2.0.0
