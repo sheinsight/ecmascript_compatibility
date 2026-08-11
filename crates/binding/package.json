@@ -22,6 +22,9 @@
       "aarch64-unknown-linux-musl"
     ]
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "node --test test/*.test.js",
     "create-npm-dirs": "napi create-npm-dirs",
