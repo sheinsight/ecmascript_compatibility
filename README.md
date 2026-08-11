@@ -72,19 +72,21 @@ cargo run -p ecmascript_compatibility --example analyze_file -- dist/app.js "chr
 
 ## Node.js API
 
-仓库提供 napi-rs binding 包，JS 侧可以直接传入 `cwd`，由 native 层递归扫描
-目录下的 `.js`、`.mjs`、`.cjs` 和 `.jsx` 文件并批量分析：
+仓库提供 napi-rs binding 包，JS 侧可以直接传入文件 glob，由 native 层在
+`cwd` 下发现 `.js`、`.mjs`、`.cjs` 和 `.jsx` 文件并批量分析：
 
 ```js
-const { checkDirectory } = require("@shined/ecmascript-compatibility");
+const { checkFiles } = require("@shined/ecmascript-compatibility");
 
-const report = checkDirectory(process.cwd(), ["chrome 60", "safari 13"]);
+const report = checkFiles(["src/**/*.{js,jsx}", "dist/**/*.mjs"], ["chrome 60", "safari 13"], {
+  cwd: process.cwd(),
+});
 
 console.log(report.fileCount);
 console.log(report.diagnosticCount);
 ```
 
-`checkDirectory` 会并行分析文件。需要限制 worker 数时可以传 `parallelism`。
+`checkFiles` 会并行分析文件。需要限制 worker 数时可以传 `parallelism`。
 默认只返回有诊断的文件；需要保留空诊断文件报告时可以传 `excludeEmptyReports: false`。
 
 本地构建 binding：

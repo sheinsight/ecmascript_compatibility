@@ -1,4 +1,4 @@
-const { checkDirectory } = require('..')
+const { checkFiles } = require('..')
 const fs = require('fs')
 
 const cwd = '/Users/10015448/Git/modb-front/dist/statics'
@@ -7,18 +7,21 @@ const parallelism = process.env.PARALLELISM
   ? Number(process.env.PARALLELISM)
   : undefined
 
-const directoryOptions = {
+const filesOptions = {
   ...(parallelism ? { parallelism } : {}),
   includeSupportedTargets: false,
   // excludeEmptyReports:true
 }
 
-const directoryReport = checkDirectory(cwd, targets, directoryOptions)
+const filesReport = checkFiles(['**/*.{js}'], targets, {
+  ...filesOptions,
+  cwd,
+})
 
-console.log(JSON.stringify(directoryReport, null, 2))
+console.log(JSON.stringify(filesReport, null, 2))
 
 fs.writeFileSync(
   'benchmark-modb-front.json',
-  JSON.stringify(directoryReport, null, 2),
+  JSON.stringify(filesReport, null, 2),
   'utf-8'
 )

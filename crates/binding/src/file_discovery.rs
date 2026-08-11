@@ -4,10 +4,7 @@ use std::{
 };
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use ignore::{
-  WalkBuilder,
-  overrides::{Override, OverrideBuilder},
-};
+use ignore::WalkBuilder;
 use path_slash::PathExt;
 use thiserror::Error;
 
@@ -15,25 +12,22 @@ const DEFAULT_EXTENSIONS: &[&str] = &["js", "mjs", "cjs", "jsx"];
 
 #[derive(Debug, Clone)]
 pub struct FileDiscoveryOptions {
+  pub patterns: Vec<String>,
   pub extensions: Vec<String>,
-  pub include_globs: Vec<String>,
-  pub exclude_globs: Vec<String>,
   pub respect_gitignore: bool,
   pub ignore_hidden: bool,
 }
 
 impl FileDiscoveryOptions {
   pub fn new(
+    patterns: &[String],
     extensions: Option<&[String]>,
-    include_globs: Option<&[String]>,
-    exclude_globs: Option<&[String]>,
     respect_gitignore: bool,
     ignore_hidden: bool,
   ) -> Self {
     Self {
+      patterns: normalize_globs(Some(patterns)),
       extensions: normalize_extensions(extensions),
-      include_globs: normalize_globs(include_globs),
-      exclude_globs: normalize_globs(exclude_globs),
       respect_gitignore,
       ignore_hidden,
     }
@@ -44,6 +38,9 @@ impl FileDiscoveryOptions {
 pub enum FileDiscoveryError {
   #[error("cwd is not a directory: `{0}`")]
   CwdNotDirectory(String),
+
+  #[error("at least one file pattern is required")]
+  EmptyPatterns,
 
   #[error("path is outside cwd: `{path}`")]
   PathOutsideCwd { path: String },
@@ -58,8 +55,8 @@ pub enum FileDiscoveryError {
   Ignore(#[from] ignore::Error),
 }
 
-pub fn normalize_cwd(cwd: String) -> Result<PathBuf, FileDiscoveryError> {
-  let path = PathBuf::from(cwd);
+pub fn normalize_cwd(cwd: PathBuf) -> Result<PathBuf, FileDiscoveryError> {
+  let path = cwd;
   let metadata = fs::metadata(&path)?;
 
   if !metadata.is_dir() {
@@ -75,8 +72,11 @@ pub fn discover_files(
   cwd: &Path,
   options: &FileDiscoveryOptions,
 ) -> Result<Vec<PathBuf>, FileDiscoveryError> {
-  let include_set = build_glob_set(&options.include_globs)?;
-  let exclude_overrides = build_exclude_overrides(cwd, &options.exclude_globs)?;
+  if options.patterns.is_empty() {
+    return Err(FileDiscoveryError::EmptyPatterns);
+  }
+
+  let include_set = build_glob_set(&options.patterns)?;
   let mut builder = WalkBuilder::new(cwd);
 
   builder
@@ -85,8 +85,7 @@ pub fn discover_files(
     .git_ignore(options.respect_gitignore)
     .git_global(options.respect_gitignore)
     .git_exclude(options.respect_gitignore)
-    .parents(options.respect_gitignore)
-    .overrides(exclude_overrides);
+    .parents(options.respect_gitignore);
 
   let mut files = Vec::new();
 
@@ -105,7 +104,7 @@ pub fn discover_files(
       continue;
     }
 
-    if !matches_include(cwd, path, include_set.as_ref())? {
+    if !matches_include(cwd, path, &include_set)? {
       continue;
     }
 
@@ -116,30 +115,11 @@ pub fn discover_files(
   Ok(files)
 }
 
-fn build_glob_set(
-  globs: &[String],
-) -> Result<Option<GlobSet>, FileDiscoveryError> {
-  if globs.is_empty() {
-    return Ok(None);
-  }
-
+fn build_glob_set(globs: &[String]) -> Result<GlobSet, FileDiscoveryError> {
   let mut builder = GlobSetBuilder::new();
 
   for glob in globs {
     builder.add(Glob::new(glob)?);
-  }
-
-  Ok(Some(builder.build()?))
-}
-
-fn build_exclude_overrides(
-  cwd: &Path,
-  globs: &[String],
-) -> Result<Override, FileDiscoveryError> {
-  let mut builder = OverrideBuilder::new(cwd);
-
-  for glob in globs {
-    builder.add(&format!("!{glob}"))?;
   }
 
   Ok(builder.build()?)
@@ -148,11 +128,8 @@ fn build_exclude_overrides(
 fn matches_include(
   cwd: &Path,
   path: &Path,
-  include_set: Option<&GlobSet>,
+  include_set: &GlobSet,
 ) -> Result<bool, FileDiscoveryError> {
-  let Some(include_set) = include_set else {
-    return Ok(true);
-  };
   let relative =
     path
       .strip_prefix(cwd)

@@ -4,9 +4,9 @@ const { tmpdir } = require('node:os')
 const { join, relative, sep } = require('node:path')
 const test = require('node:test')
 
-const { checkDirectory } = require('..')
+const { checkFiles } = require('..')
 
-test('checkDirectory recursively scans JavaScript files under cwd', () => {
+test('checkFiles scans files matching patterns under cwd', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'ecmascript-compat-'))
   mkdirSync(join(cwd, 'src'))
 
@@ -21,7 +21,9 @@ test('checkDirectory recursively scans JavaScript files under cwd', () => {
   )
   writeFileSync(join(cwd, 'src/ignored.ts'), 'const ignored: number = 1;\n')
 
-  const report = checkDirectory(cwd, ['chrome 60'])
+  const report = checkFiles(['*.cjs', 'src/**/*.{js,jsx}'], ['chrome 60'], {
+    cwd,
+  })
   const paths = report.reports.map((item) =>
     relative(report.cwd, item.path).split(sep).join('/'),
   )
@@ -33,12 +35,15 @@ test('checkDirectory recursively scans JavaScript files under cwd', () => {
   assert.ok(report.reports.every((item) => !('timing' in item)))
 })
 
-test('checkDirectory accepts custom extensions', () => {
+test('checkFiles accepts custom extensions', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'ecmascript-compat-'))
   writeFileSync(cwd + '/component.jsx', 'export const value = item?.name;\n')
   writeFileSync(cwd + '/ignored.js', 'const value = item?.name;\n')
 
-  const report = checkDirectory(cwd, ['chrome 60'], { extensions: ['.jsx'] })
+  const report = checkFiles(['*'], ['chrome 60'], {
+    cwd,
+    extensions: ['.jsx'],
+  })
   const paths = report.reports.map((item) =>
     relative(report.cwd, item.path).split(sep).join('/'),
   )
@@ -47,7 +52,7 @@ test('checkDirectory accepts custom extensions', () => {
   assert.deepEqual(paths, ['component.jsx'])
 })
 
-test('checkDirectory filters files with include globs', () => {
+test('checkFiles filters files with include patterns', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'ecmascript-compat-'))
   mkdirSync(join(cwd, 'src'))
   mkdirSync(join(cwd, 'dist'))
@@ -55,9 +60,7 @@ test('checkDirectory filters files with include globs', () => {
   writeFileSync(join(cwd, 'src/app.js'), 'const value = item?.name;\n')
   writeFileSync(join(cwd, 'dist/app.js'), 'const value = item?.name;\n')
 
-  const report = checkDirectory(cwd, ['chrome 60'], {
-    includeGlobs: ['src/**/*.js'],
-  })
+  const report = checkFiles(['src/**/*.js'], ['chrome 60'], { cwd })
   const paths = report.reports.map((item) =>
     relative(report.cwd, item.path).split(sep).join('/'),
   )
@@ -66,30 +69,39 @@ test('checkDirectory filters files with include globs', () => {
   assert.deepEqual(paths, ['src/app.js'])
 })
 
-test('checkDirectory filters files with exclude globs', () => {
+test('checkFiles accepts multiple include patterns', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'ecmascript-compat-'))
   mkdirSync(join(cwd, 'src'))
+  mkdirSync(join(cwd, 'dist'))
 
   writeFileSync(join(cwd, 'src/app.js'), 'const value = item?.name;\n')
-  writeFileSync(join(cwd, 'src/app.test.js'), 'const value = item?.name;\n')
+  writeFileSync(join(cwd, 'dist/app.mjs'), 'const value = item?.name;\n')
+  writeFileSync(join(cwd, 'ignored.js'), 'const value = item?.name;\n')
 
-  const report = checkDirectory(cwd, ['chrome 60'], {
-    excludeGlobs: ['**/*.test.js'],
+  const report = checkFiles(['src/**/*.js', 'dist/**/*.mjs'], ['chrome 60'], {
+    cwd,
   })
   const paths = report.reports.map((item) =>
     relative(report.cwd, item.path).split(sep).join('/'),
   )
 
-  assert.equal(report.fileCount, 1)
-  assert.deepEqual(paths, ['src/app.js'])
+  assert.equal(report.fileCount, 2)
+  assert.deepEqual(paths, ['dist/app.mjs', 'src/app.js'])
 })
 
-test('checkDirectory excludes reports without diagnostics by default', () => {
+test('checkFiles rejects empty patterns', () => {
+  assert.throws(
+    () => checkFiles([], ['chrome 60']),
+    /at least one file pattern is required/,
+  )
+})
+
+test('checkFiles excludes reports without diagnostics by default', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'ecmascript-compat-'))
   writeFileSync(join(cwd, 'modern.js'), 'const value = object?.field;\n')
   writeFileSync(join(cwd, 'legacy.js'), 'const value = object.field;\n')
 
-  const report = checkDirectory(cwd, ['chrome 60'])
+  const report = checkFiles(['*.js'], ['chrome 60'], { cwd })
   const paths = report.reports.map((item) =>
     relative(report.cwd, item.path).split(sep).join('/'),
   )
@@ -99,12 +111,13 @@ test('checkDirectory excludes reports without diagnostics by default', () => {
   assert.ok(report.reports.every((item) => item.diagnostics.length > 0))
 })
 
-test('checkDirectory can include reports without diagnostics', () => {
+test('checkFiles can include reports without diagnostics', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'ecmascript-compat-'))
   writeFileSync(join(cwd, 'modern.js'), 'const value = object?.field;\n')
   writeFileSync(join(cwd, 'legacy.js'), 'const value = object.field;\n')
 
-  const report = checkDirectory(cwd, ['chrome 60'], {
+  const report = checkFiles(['*.js'], ['chrome 60'], {
+    cwd,
     excludeEmptyReports: false,
   })
   const paths = report.reports.map((item) =>
@@ -116,7 +129,7 @@ test('checkDirectory can include reports without diagnostics', () => {
   assert.ok(report.reports.some((item) => item.diagnostics.length === 0))
 })
 
-test('checkDirectory returns source map references as plain strings', () => {
+test('checkFiles returns source map references as plain strings', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'ecmascript-compat-'))
   const sourcePath = join(cwd, 'bundle.js')
   const sourceMapPath = `${sourcePath}.map`
@@ -135,7 +148,7 @@ test('checkDirectory returns source map references as plain strings', () => {
     }),
   )
 
-  const report = checkDirectory(cwd, ['chrome 60'])
+  const report = checkFiles(['*.js'], ['chrome 60'], { cwd })
 
   assert.equal(report.fileCount, 1)
   assert.equal(report.reports[0].sourceMapStatus.kind, 'resolved')

@@ -1,4 +1,5 @@
 use std::{
+  env,
   path::{Path, PathBuf},
   time::{Duration, Instant},
 };
@@ -25,11 +26,10 @@ mod file_discovery;
 use file_discovery::{FileDiscoveryOptions, discover_files, normalize_cwd};
 
 #[napi(object)]
-pub struct CheckDirectoryOptions {
+pub struct CheckFilesOptions {
   pub include_supported_targets: Option<bool>,
+  pub cwd: Option<String>,
   pub extensions: Option<Vec<String>>,
-  pub include_globs: Option<Vec<String>>,
-  pub exclude_globs: Option<Vec<String>>,
   pub respect_gitignore: Option<bool>,
   pub ignore_hidden: Option<bool>,
   pub parallelism: Option<u32>,
@@ -42,14 +42,14 @@ pub struct CheckFileOptions {
 }
 
 #[napi(object)]
-pub struct CompatDirectoryReport {
+pub struct CompatFilesReport {
   pub cwd: String,
   pub targets: Vec<RuntimeTarget>,
   pub file_count: u32,
   pub diagnostic_count: u32,
   pub reports: Vec<CompatFileReport>,
   pub errors: Vec<CompatFileError>,
-  pub timing: DirectoryTiming,
+  pub timing: FilesTiming,
 }
 
 #[napi(object)]
@@ -66,7 +66,7 @@ pub struct CompatFileReport {
 }
 
 #[napi(object)]
-pub struct DirectoryTiming {
+pub struct FilesTiming {
   pub elapsed_ms: f64,
   pub read_ms: f64,
   pub parse_detect_ms: f64,
@@ -127,24 +127,25 @@ pub struct TargetCompatStatus {
   pub status: String,
 }
 
-#[napi(js_name = "checkDirectory")]
-pub fn check_directory(
-  cwd: String,
+#[napi(js_name = "checkFiles")]
+pub fn check_files(
+  patterns: Vec<String>,
   targets: Vec<String>,
-  options: Option<CheckDirectoryOptions>,
-) -> Result<CompatDirectoryReport> {
+  options: Option<CheckFilesOptions>,
+) -> Result<CompatFilesReport> {
   let elapsed_started_at = Instant::now();
+  let cwd = options
+    .as_ref()
+    .and_then(|options| options.cwd.as_ref())
+    .map(PathBuf::from)
+    .map_or_else(env::current_dir, Ok)
+    .map_err(to_napi_error)?;
   let cwd = normalize_cwd(cwd).map_err(to_napi_error)?;
   let discovery_options = FileDiscoveryOptions::new(
+    &patterns,
     options
       .as_ref()
       .and_then(|options| options.extensions.as_deref()),
-    options
-      .as_ref()
-      .and_then(|options| options.include_globs.as_deref()),
-    options
-      .as_ref()
-      .and_then(|options| options.exclude_globs.as_deref()),
     options
       .as_ref()
       .and_then(|options| options.respect_gitignore)
@@ -163,7 +164,7 @@ pub fn check_directory(
     .and_then(|options| options.exclude_empty_reports)
     .unwrap_or(true);
 
-  check_directory_with_analyzer(
+  check_files_with_analyzer(
     &cwd,
     &discovery_options,
     &targets,
@@ -174,7 +175,7 @@ pub fn check_directory(
   )
 }
 
-fn check_directory_with_analyzer<L>(
+fn check_files_with_analyzer<L>(
   cwd: &Path,
   discovery_options: &FileDiscoveryOptions,
   targets: &[String],
@@ -182,7 +183,7 @@ fn check_directory_with_analyzer<L>(
   exclude_empty_reports: bool,
   elapsed_started_at: Instant,
   analyzer: &CompatAnalyzer<L>,
-) -> Result<CompatDirectoryReport>
+) -> Result<CompatFilesReport>
 where
   L: SourceMapLoader + Sync,
 {
@@ -223,7 +224,7 @@ where
     .iter()
     .map(|entry| entry.report.diagnostics.len() as u32)
     .sum();
-  let timing = DirectoryTiming::from_file_timings(
+  let timing = FilesTiming::from_file_timings(
     elapsed_started_at.elapsed(),
     &analyzed_reports,
   );
@@ -232,7 +233,7 @@ where
     .map(|entry| entry.report)
     .collect::<Vec<_>>();
 
-  Ok(CompatDirectoryReport {
+  Ok(CompatFilesReport {
     cwd: path_label(cwd),
     targets: resolved_targets.iter().copied().map(Into::into).collect(),
     file_count: reports.len() as u32,
@@ -362,7 +363,7 @@ impl JsAnalyzedFileReport {
   }
 }
 
-impl DirectoryTiming {
+impl FilesTiming {
   fn from_file_timings(
     elapsed: Duration,
     reports: &[JsAnalyzedFileReport],
