@@ -37,11 +37,18 @@ export interface CompatFileReport {
   diagnostics: Array<CompatDiagnostic>
 }
 
+export interface CompatFilesCounts {
+  matchedFiles: number
+  analyzedFiles: number
+  reportedFiles: number
+  diagnostics: number
+  errors: number
+}
+
 export interface CompatFilesReport {
   cwd: string
   targets: Array<RuntimeTarget>
-  fileCount: number
-  diagnosticCount: number
+  counts: CompatFilesCounts
   reports: Array<CompatFileReport>
   errors: Array<CompatFileError>
   timing: FilesTiming

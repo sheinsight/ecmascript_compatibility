@@ -17,8 +17,8 @@ const report = checkFiles(
   },
 );
 
-console.log(report.fileCount);
-console.log(report.diagnosticCount);
+console.log(report.counts.reportedFiles);
+console.log(report.counts.diagnostics);
 ```
 
 ## API

@@ -82,8 +82,8 @@ const report = checkFiles(["src/**/*.{js,jsx}", "dist/**/*.mjs"], ["chrome 60", 
   cwd: process.cwd(),
 });
 
-console.log(report.fileCount);
-console.log(report.diagnosticCount);
+console.log(report.counts.reportedFiles);
+console.log(report.counts.diagnostics);
 ```
 
 `checkFiles` 会并行分析文件。需要限制 worker 数时可以传 `parallelism`。

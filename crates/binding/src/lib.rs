@@ -45,11 +45,19 @@ pub struct CheckFileOptions {
 pub struct CompatFilesReport {
   pub cwd: String,
   pub targets: Vec<RuntimeTarget>,
-  pub file_count: u32,
-  pub diagnostic_count: u32,
+  pub counts: CompatFilesCounts,
   pub reports: Vec<CompatFileReport>,
   pub errors: Vec<CompatFileError>,
   pub timing: FilesTiming,
+}
+
+#[napi(object)]
+pub struct CompatFilesCounts {
+  pub matched_files: u32,
+  pub analyzed_files: u32,
+  pub reported_files: u32,
+  pub diagnostics: u32,
+  pub errors: u32,
 }
 
 #[napi(object)]
@@ -216,11 +224,9 @@ where
     }
   }
 
-  if exclude_empty_reports {
-    analyzed_reports.retain(|entry| !entry.report.diagnostics.is_empty());
-  }
-
-  let diagnostic_count = analyzed_reports
+  let matched_files = files.len() as u32;
+  let analyzed_files = analyzed_reports.len() as u32;
+  let diagnostics = analyzed_reports
     .iter()
     .map(|entry| entry.report.diagnostics.len() as u32)
     .sum();
@@ -228,17 +234,26 @@ where
     elapsed_started_at.elapsed(),
     &analyzed_reports,
   );
-  let reports = analyzed_reports
+  let reported_reports = analyzed_reports
     .into_iter()
+    .filter(|entry| {
+      !exclude_empty_reports || !entry.report.diagnostics.is_empty()
+    })
     .map(|entry| entry.report)
     .collect::<Vec<_>>();
+  let reported_files = reported_reports.len() as u32;
 
   Ok(CompatFilesReport {
     cwd: path_label(cwd),
     targets: resolved_targets.iter().copied().map(Into::into).collect(),
-    file_count: reports.len() as u32,
-    diagnostic_count,
-    reports,
+    counts: CompatFilesCounts {
+      matched_files,
+      analyzed_files,
+      reported_files,
+      diagnostics,
+      errors: errors.len() as u32,
+    },
+    reports: reported_reports,
     errors,
     timing,
   })

@@ -6,8 +6,13 @@
       "release": "70"
     }
   ],
-  "fileCount": 36,
-  "diagnosticCount": 3419,
+  "counts": {
+    "matchedFiles": 158,
+    "analyzedFiles": 158,
+    "reportedFiles": 36,
+    "diagnostics": 3419,
+    "errors": 0
+  },
   "reports": [
     {
       "path": "/Users/10015448/Git/modb-front/dist/statics/node_modules_pnpm_mermaid_11_14_0_node_modules_mermaid_dist_chunks_mermaid_core_diagram-5BDNP-5969fa.fbc45041e7f9.chunk.js",
@@ -99007,13 +99012,13 @@
   ],
   "errors": [],
   "timing": {
-    "elapsedMs": 1597.2020420000001,
-    "readMs": 15.693456999999997,
-    "parseDetectMs": 1670.637332,
-    "generatedPositionMs": 256.30354099999994,
-    "sourceMapMs": 1803.9214220000001,
-    "originalRangeRecoveryMs": 983.6636219999999,
-    "targetEvaluateMs": 5.311788,
-    "dtoConversionMs": 1.1739169999999999
+    "elapsedMs": 1362.204167,
+    "readMs": 56.71413099999997,
+    "parseDetectMs": 3450.784247,
+    "generatedPositionMs": 657.0822430000002,
+    "sourceMapMs": 4223.858783999998,
+    "originalRangeRecoveryMs": 1016.7225919999998,
+    "targetEvaluateMs": 9.880123,
+    "dtoConversionMs": 1.5773339999999998
   }
 }

@@ -28,10 +28,19 @@ test('checkFiles scans files matching patterns under cwd', () => {
     relative(report.cwd, item.path).split(sep).join('/'),
   )
 
-  assert.equal(report.fileCount, 3)
+  assert.deepEqual(report.counts, {
+    matchedFiles: 3,
+    analyzedFiles: 3,
+    reportedFiles: 3,
+    diagnostics: report.reports.reduce(
+      (count, item) => count + item.diagnostics.length,
+      0,
+    ),
+    errors: 0,
+  })
   assert.equal(report.errors.length, 0)
   assert.deepEqual(paths, ['b.cjs', 'src/a.js', 'src/view.jsx'])
-  assert.ok(report.diagnosticCount > 0)
+  assert.ok(report.counts.diagnostics > 0)
   assert.ok(report.reports.every((item) => !('timing' in item)))
 })
 
@@ -48,7 +57,9 @@ test('checkFiles accepts custom extensions', () => {
     relative(report.cwd, item.path).split(sep).join('/'),
   )
 
-  assert.equal(report.fileCount, 1)
+  assert.equal(report.counts.matchedFiles, 1)
+  assert.equal(report.counts.analyzedFiles, 1)
+  assert.equal(report.counts.reportedFiles, 1)
   assert.deepEqual(paths, ['component.jsx'])
 })
 
@@ -65,7 +76,9 @@ test('checkFiles filters files with include patterns', () => {
     relative(report.cwd, item.path).split(sep).join('/'),
   )
 
-  assert.equal(report.fileCount, 1)
+  assert.equal(report.counts.matchedFiles, 1)
+  assert.equal(report.counts.analyzedFiles, 1)
+  assert.equal(report.counts.reportedFiles, 1)
   assert.deepEqual(paths, ['src/app.js'])
 })
 
@@ -85,7 +98,9 @@ test('checkFiles accepts multiple include patterns', () => {
     relative(report.cwd, item.path).split(sep).join('/'),
   )
 
-  assert.equal(report.fileCount, 2)
+  assert.equal(report.counts.matchedFiles, 2)
+  assert.equal(report.counts.analyzedFiles, 2)
+  assert.equal(report.counts.reportedFiles, 2)
   assert.deepEqual(paths, ['dist/app.mjs', 'src/app.js'])
 })
 
@@ -106,7 +121,9 @@ test('checkFiles excludes reports without diagnostics by default', () => {
     relative(report.cwd, item.path).split(sep).join('/'),
   )
 
-  assert.equal(report.fileCount, 1)
+  assert.equal(report.counts.matchedFiles, 2)
+  assert.equal(report.counts.analyzedFiles, 2)
+  assert.equal(report.counts.reportedFiles, 1)
   assert.deepEqual(paths, ['modern.js'])
   assert.ok(report.reports.every((item) => item.diagnostics.length > 0))
 })
@@ -124,7 +141,9 @@ test('checkFiles can include reports without diagnostics', () => {
     relative(report.cwd, item.path).split(sep).join('/'),
   )
 
-  assert.equal(report.fileCount, 2)
+  assert.equal(report.counts.matchedFiles, 2)
+  assert.equal(report.counts.analyzedFiles, 2)
+  assert.equal(report.counts.reportedFiles, 2)
   assert.deepEqual(paths, ['legacy.js', 'modern.js'])
   assert.ok(report.reports.some((item) => item.diagnostics.length === 0))
 })
@@ -150,7 +169,9 @@ test('checkFiles returns source map references as plain strings', () => {
 
   const report = checkFiles(['*.js'], ['chrome 60'], { cwd })
 
-  assert.equal(report.fileCount, 1)
+  assert.equal(report.counts.matchedFiles, 1)
+  assert.equal(report.counts.analyzedFiles, 1)
+  assert.equal(report.counts.reportedFiles, 1)
   assert.equal(report.reports[0].sourceMapStatus.kind, 'resolved')
   assert.equal(
     report.reports[0].sourceMapStatus.reference,
