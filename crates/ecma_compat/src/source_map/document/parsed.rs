@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use serde_json::Value;
-use sourcemap::SourceMap;
+use sourcemap::{SourceMap, Token};
 
 use super::SourceMapDocumentParseError;
 use crate::source_map::{
@@ -28,21 +28,80 @@ impl SourceMapDocument {
   }
 
   pub fn lookup(&self, generated: SourcePosition) -> Option<SourceLocation> {
+    self
+      .lookup_mapped_token(generated)
+      .map(|token| SourceLocation::new(token.source, token.original, None))
+  }
+
+  pub fn lookup_range(
+    &self,
+    generated_start: SourcePosition,
+    generated_end: SourcePosition,
+  ) -> Option<SourceLocation> {
+    let start = self.lookup_mapped_token(generated_start)?;
+    let end = self.lookup_mapped_token(generated_end);
+    let original_end = end
+      .filter(|end| start.can_form_range_with(end))
+      .map(|end| end.original);
+
+    Some(SourceLocation::new(
+      start.source,
+      start.original,
+      original_end,
+    ))
+  }
+
+  pub fn source_count(&self) -> u32 {
+    self.inner.get_source_count()
+  }
+
+  pub fn source_contents(&self, source: &SourceIdentity) -> Option<&str> {
+    (0..self.inner.get_source_count()).find_map(|source_id| {
+      let candidate = source_identity(self.inner.get_source(source_id));
+
+      if &candidate == source {
+        self.inner.get_source_contents(source_id)
+      } else {
+        None
+      }
+    })
+  }
+
+  fn lookup_mapped_token(
+    &self,
+    generated: SourcePosition,
+  ) -> Option<MappedToken> {
     let token = self.inner.lookup_token(generated.line(), generated.col())?;
 
     if !token.has_source() {
       return None;
     }
 
-    Some(SourceLocation::new(
-      source_identity(token.get_source()),
-      SourcePosition::new(token.get_src_line(), token.get_src_col()),
-      None,
-    ))
+    Some(MappedToken::from_token(&token))
+  }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MappedToken {
+  raw_token: sourcemap::RawToken,
+  source: SourceIdentity,
+  original: SourcePosition,
+}
+
+impl MappedToken {
+  fn from_token(token: &Token<'_>) -> Self {
+    Self {
+      raw_token: token.get_raw_token(),
+      source: source_identity(token.get_source()),
+      original: SourcePosition::new(token.get_src_line(), token.get_src_col()),
+    }
   }
 
-  pub fn source_count(&self) -> u32 {
-    self.inner.get_source_count()
+  fn can_form_range_with(&self, end: &Self) -> bool {
+    self.raw_token == end.raw_token
+      && self.raw_token.is_range
+      && self.source == end.source
+      && self.original <= end.original
   }
 }
 
@@ -85,6 +144,7 @@ fn is_standard_url(source: &str) -> bool {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use sourcemap::SourceMapBuilder;
 
   #[test]
   fn parses_a_valid_source_map_document() {
@@ -120,6 +180,32 @@ mod tests {
     assert_eq!(location.source(), &SourceIdentity::file("src/index.ts"),);
     assert_eq!(location.start(), SourcePosition::new(0, 0));
     assert_eq!(location.end(), None);
+  }
+
+  #[test]
+  fn keeps_regular_source_map_ranges_open_ended() {
+    let document = SourceMapDocument::parse(valid_source_map()).unwrap();
+
+    let location = document
+      .lookup_range(SourcePosition::new(0, 0), SourcePosition::new(0, 5))
+      .unwrap();
+
+    assert_eq!(location.source(), &SourceIdentity::file("src/index.ts"),);
+    assert_eq!(location.start(), SourcePosition::new(0, 0));
+    assert_eq!(location.end(), None);
+  }
+
+  #[test]
+  fn maps_original_end_for_range_tokens() {
+    let document = SourceMapDocument::parse(&range_source_map()).unwrap();
+
+    let location = document
+      .lookup_range(SourcePosition::new(0, 0), SourcePosition::new(0, 5))
+      .unwrap();
+
+    assert_eq!(location.source(), &SourceIdentity::file("src/index.ts"),);
+    assert_eq!(location.start(), SourcePosition::new(10, 3));
+    assert_eq!(location.end(), Some(SourcePosition::new(10, 8)));
   }
 
   #[test]
@@ -160,5 +246,14 @@ mod tests {
       "names":[],
       "mappings":"AAAA"
     }"#
+  }
+
+  fn range_source_map() -> Vec<u8> {
+    let mut builder = SourceMapBuilder::new(None);
+    builder.add(0, 0, 10, 3, Some("src/index.ts"), None, true);
+
+    let mut output = Vec::new();
+    builder.into_sourcemap().to_writer(&mut output).unwrap();
+    output
   }
 }

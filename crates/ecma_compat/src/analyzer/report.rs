@@ -14,6 +14,7 @@ pub struct CompatAnalysisTiming {
   parse_detect: Duration,
   generated_position: Duration,
   source_map: Duration,
+  original_range_recovery: Duration,
   target_evaluate: Duration,
 }
 
@@ -23,6 +24,7 @@ impl CompatAnalysisTiming {
     parse_detect: Duration,
     generated_position: Duration,
     source_map: Duration,
+    original_range_recovery: Duration,
     target_evaluate: Duration,
   ) -> Self {
     Self {
@@ -30,6 +32,7 @@ impl CompatAnalysisTiming {
       parse_detect,
       generated_position,
       source_map,
+      original_range_recovery,
       target_evaluate,
     }
   }
@@ -48,6 +51,10 @@ impl CompatAnalysisTiming {
 
   pub const fn source_map(self) -> Duration {
     self.source_map
+  }
+
+  pub const fn original_range_recovery(self) -> Duration {
+    self.original_range_recovery
   }
 
   pub const fn target_evaluate(self) -> Duration {

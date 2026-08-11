@@ -2,6 +2,7 @@ mod builder;
 mod diagnostic;
 mod error;
 mod generated_source_index;
+mod original_range_recovery;
 mod report;
 
 use std::{
@@ -26,6 +27,7 @@ use crate::{
 };
 
 use generated_source_index::GeneratedSourceIndex;
+use original_range_recovery::OriginalRangeRecoverer;
 
 /// 兼容性分析的对外入口。
 ///
@@ -210,21 +212,38 @@ where
     let source_index = GeneratedSourceIndex::new(source.source_text());
     let generated_offsets = pending_diagnostics
       .iter()
-      .map(|diagnostic| diagnostic.span.start())
+      .flat_map(|diagnostic| [diagnostic.span.start(), diagnostic.span.end()])
       .collect::<Vec<_>>();
     let generated_positions =
       source_index.positions_for_offsets(&generated_offsets);
     let generated_position = generated_position_started_at.elapsed();
+    let mut original_range_recovery = Duration::ZERO;
+    let mut original_range_recoverer = resolved_source_map.map(|resolved| {
+      OriginalRangeRecoverer::new(&self.detector, resolved.document())
+    });
 
-    for (pending, generated_position) in
-      pending_diagnostics.into_iter().zip(generated_positions)
+    let generated_ranges =
+      generated_positions.chunks_exact(2).map(|positions| {
+        GeneratedSourceRange {
+          start: positions[0],
+          end: positions[1],
+        }
+      });
+
+    for (pending, generated_range) in
+      pending_diagnostics.into_iter().zip(generated_ranges)
     {
       // syntax detector 给出的是 byte span；Source Map 查询需要零基 UTF-16 行列。
-      // 这里用 span 起点作为 diagnostic 的主要定位点，span 本身仍保留在结果里。
+      // diagnostic 的 generated position 仍以 usage 起点作为主要定位点；source map
+      // 则按范围查询，并由 document 层决定 original end 是否可靠。
       let source_map_lookup_started_at = Instant::now();
       let source_mapping = resolved_source_map
         .as_ref()
-        .and_then(|resolved| resolved.document().lookup(generated_position))
+        .and_then(|resolved| {
+          resolved
+            .document()
+            .lookup_range(generated_range.start, generated_range.end)
+        })
         .map_or_else(
           || {
             source_map_status.unavailable_reason().cloned().map_or_else(
@@ -239,13 +258,40 @@ where
           SourceMapUnavailableOrLocation::Location,
         );
       source_map += source_map_lookup_started_at.elapsed();
+      let source_mapping = match source_mapping {
+        SourceMapUnavailableOrLocation::Location(location) => {
+          let recovered_end =
+            original_range_recoverer.as_mut().and_then(|recoverer| {
+              let original_range_recovery_started_at = Instant::now();
+              let recovered_end =
+                recoverer.recover_end(pending.feature, &location);
+              original_range_recovery +=
+                original_range_recovery_started_at.elapsed();
+              recovered_end
+            });
+
+          SourceMapUnavailableOrLocation::Location(recovered_end.map_or(
+            location.clone(),
+            |end| {
+              crate::source_map::SourceLocation::new(
+                location.source().clone(),
+                location.start(),
+                Some(end),
+              )
+            },
+          ))
+        }
+        SourceMapUnavailableOrLocation::Unavailable(reason) => {
+          SourceMapUnavailableOrLocation::Unavailable(reason)
+        }
+      };
 
       // 一条 diagnostic 对应一个 syntax feature usage。多个 target 的结果聚合在
       // `target_statuses` 中，避免把 usage × target 展开成重复诊断。
       diagnostics.push(CompatDiagnostic::new(
         pending.feature,
         pending.span,
-        generated_position,
+        generated_range.start,
         source_mapping.into_source_mapping(),
         pending.target_statuses,
       ));
@@ -256,6 +302,7 @@ where
       parse_detect,
       generated_position,
       source_map,
+      original_range_recovery,
       target_evaluate,
     );
 
@@ -268,6 +315,12 @@ where
       timing,
     ))
   }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GeneratedSourceRange {
+  start: crate::source_map::SourcePosition,
+  end: crate::source_map::SourcePosition,
 }
 
 #[derive(Debug)]
@@ -376,6 +429,7 @@ fn adjacent_source_map_path(source_path: &Path) -> std::path::PathBuf {
 mod tests {
   use super::*;
   use crate::source_map::{SourceMapLoadError, SourceMapReference};
+  use sourcemap::SourceMapBuilder;
 
   #[test]
   fn analyzes_source_and_returns_non_supported_diagnostics() {
@@ -464,6 +518,89 @@ mod tests {
   }
 
   #[test]
+  fn maps_diagnostic_original_end_when_source_map_has_range_tokens() {
+    struct RangeSourceMapLoader;
+
+    impl SourceMapLoader for RangeSourceMapLoader {
+      fn load(
+        &self,
+        _reference: &SourceMapReference,
+      ) -> Result<Vec<u8>, SourceMapLoadError> {
+        Ok(range_source_map())
+      }
+    }
+
+    let source = SourceFile::javascript("dist/input.js", "user?.name;");
+
+    let analyzer = CompatAnalyzer::builder()
+      .source_map_loader(RangeSourceMapLoader)
+      .build();
+    let targets = analyzer.resolve_targets(["chrome 79"]).unwrap();
+    let report = analyzer.analyze_source(source, &targets).unwrap();
+
+    let crate::source_map::SourceMapping::Mapped(location) =
+      report.diagnostics()[0].source_mapping()
+    else {
+      panic!("expected mapped source location");
+    };
+
+    assert_eq!(
+      location.start(),
+      crate::source_map::SourcePosition::new(5, 7)
+    );
+    assert_eq!(
+      location.end(),
+      Some(crate::source_map::SourcePosition::new(5, 17)),
+    );
+  }
+
+  #[test]
+  fn recovers_diagnostic_original_end_from_sources_content() {
+    struct SourcesContentSourceMapLoader;
+
+    impl SourceMapLoader for SourcesContentSourceMapLoader {
+      fn load(
+        &self,
+        _reference: &SourceMapReference,
+      ) -> Result<Vec<u8>, SourceMapLoadError> {
+        Ok(
+          br#"{
+            "version":3,
+            "sources":["src/input.js"],
+            "sourcesContent":["user?.name;"],
+            "names":[],
+            "mappings":"AAAA"
+          }"#
+            .to_vec(),
+        )
+      }
+    }
+
+    let source = SourceFile::javascript("dist/input.js", "user?.name;");
+
+    let analyzer = CompatAnalyzer::builder()
+      .source_map_loader(SourcesContentSourceMapLoader)
+      .build();
+    let targets = analyzer.resolve_targets(["chrome 79"]).unwrap();
+    let report = analyzer.analyze_source(source, &targets).unwrap();
+
+    let crate::source_map::SourceMapping::Mapped(location) =
+      report.diagnostics()[0].source_mapping()
+    else {
+      panic!("expected mapped source location");
+    };
+
+    assert_eq!(
+      location.start(),
+      crate::source_map::SourcePosition::new(0, 0)
+    );
+    assert_eq!(
+      location.end(),
+      Some(crate::source_map::SourcePosition::new(0, 10)),
+    );
+  }
+
+  #[test]
   fn groups_target_statuses_by_detected_usage() {
     let source = SourceFile::javascript("input.js", "const name = user?.name;");
 
@@ -497,5 +634,14 @@ mod tests {
       report.source_map_status(),
       SourceMapStatus::Unavailable(SourceMapUnavailable::NotFound { .. }),
     ));
+  }
+
+  fn range_source_map() -> Vec<u8> {
+    let mut builder = SourceMapBuilder::new(None);
+    builder.add(0, 0, 5, 7, Some("src/input.ts"), None, true);
+
+    let mut output = Vec::new();
+    builder.into_sourcemap().to_writer(&mut output).unwrap();
+    output
   }
 }

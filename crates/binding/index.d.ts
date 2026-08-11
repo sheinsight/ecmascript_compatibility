@@ -50,6 +50,7 @@ export interface JsDirectoryTiming {
   parseDetectMs: number
   generatedPositionMs: number
   sourceMapMs: number
+  originalRangeRecoveryMs: number
   targetEvaluateMs: number
   dtoConversionMs: number
 }

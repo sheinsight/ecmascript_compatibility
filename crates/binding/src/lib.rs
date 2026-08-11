@@ -65,6 +65,7 @@ pub struct JsDirectoryTiming {
   pub parse_detect_ms: f64,
   pub generated_position_ms: f64,
   pub source_map_ms: f64,
+  pub original_range_recovery_ms: f64,
   pub target_evaluate_ms: f64,
   pub dto_conversion_ms: f64,
 }
@@ -387,6 +388,7 @@ struct FileTiming {
   parse_detect_ms: f64,
   generated_position_ms: f64,
   source_map_ms: f64,
+  original_range_recovery_ms: f64,
   target_evaluate_ms: f64,
   dto_conversion_ms: f64,
 }
@@ -412,6 +414,7 @@ impl JsAnalyzedFileReport {
       parse_detect_ms: duration_ms(timing.parse_detect()),
       generated_position_ms: duration_ms(timing.generated_position()),
       source_map_ms: duration_ms(timing.source_map()),
+      original_range_recovery_ms: duration_ms(timing.original_range_recovery()),
       target_evaluate_ms: duration_ms(timing.target_evaluate()),
       dto_conversion_ms: 0.0,
     };
@@ -441,6 +444,10 @@ impl JsDirectoryTiming {
       source_map_ms: reports
         .iter()
         .map(|report| report.timing.source_map_ms)
+        .sum(),
+      original_range_recovery_ms: reports
+        .iter()
+        .map(|report| report.timing.original_range_recovery_ms)
         .sum(),
       target_evaluate_ms: reports
         .iter()
