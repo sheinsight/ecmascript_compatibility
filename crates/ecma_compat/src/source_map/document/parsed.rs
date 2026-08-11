@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use serde_json::Value;
+use serde::Deserialize;
 use sourcemap::{SourceMap, Token};
 
 use super::SourceMapDocumentParseError;
@@ -108,17 +108,23 @@ impl MappedToken {
 fn validate_source_map_version(
   bytes: &[u8],
 ) -> Result<(), SourceMapDocumentParseError> {
-  let json = serde_json::from_slice::<Value>(bytes).map_err(|error| {
-    SourceMapDocumentParseError::InvalidDocument(error.to_string())
-  })?;
+  let header =
+    serde_json::from_slice::<SourceMapHeader>(bytes).map_err(|error| {
+      SourceMapDocumentParseError::InvalidDocument(error.to_string())
+    })?;
 
-  match json.get("version").and_then(Value::as_u64) {
+  match header.version {
     Some(3) => Ok(()),
     Some(version) => {
       Err(SourceMapDocumentParseError::UnsupportedVersion(version))
     }
     None => Err(SourceMapDocumentParseError::MissingVersion),
   }
+}
+
+#[derive(Debug, Deserialize)]
+struct SourceMapHeader {
+  version: Option<u64>,
 }
 
 fn source_identity(source: Option<&str>) -> SourceIdentity {

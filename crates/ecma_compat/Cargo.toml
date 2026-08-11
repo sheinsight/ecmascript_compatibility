@@ -7,6 +7,7 @@ edition = "2024"
 oxc = { workspace = true, features = ["ast_visit"] }
 browserslist-rs={workspace = true}
 serde_json = { workspace = true }
+serde = { workspace = true }
 sourcemap = { workspace = true }
 thiserror={workspace = true}
 path-slash = {workspace = true}

@@ -258,6 +258,7 @@ dependencies = [
  "browserslist-rs",
  "oxc",
  "path-slash",
+ "serde",
  "serde_json",
  "sourcemap",
  "thiserror 2.0.20",
