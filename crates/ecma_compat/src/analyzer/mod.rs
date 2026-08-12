@@ -225,6 +225,26 @@ where
       .and_then(Option::as_ref);
     let mut source_map = source_map_started_at.elapsed();
 
+    if pending_diagnostics.is_empty() {
+      let timing = CompatAnalysisTiming::new(
+        read,
+        parse_detect,
+        Duration::ZERO,
+        source_map,
+        Duration::ZERO,
+        target_evaluate,
+      );
+
+      return Ok((
+        CompatReport::new(
+          detection.path().to_path_buf(),
+          source_map_status,
+          diagnostics,
+        ),
+        timing,
+      ));
+    }
+
     let generated_position_started_at = Instant::now();
     let source_index = GeneratedSourceIndex::new(source.source_text());
     let generated_offsets = pending_diagnostics
@@ -524,13 +544,16 @@ mod tests {
       .source_map_policy(SourceMapPolicy::DiagnosticsOnly)
       .build();
     let targets = analyzer.resolve_targets(["chrome 80"]).unwrap();
-    let report = analyzer.analyze_source(source, &targets).unwrap();
+    let (report, timing) = analyzer
+      .analyze_source_with_read_timing(source, &targets, Duration::ZERO)
+      .unwrap();
 
     assert!(report.diagnostics().is_empty());
     assert_eq!(
       report.source_map_status(),
       &SourceMapStatus::Skipped(SourceMapSkipReason::NoDiagnostics),
     );
+    assert_eq!(timing.generated_position(), Duration::ZERO);
   }
 
   #[test]
