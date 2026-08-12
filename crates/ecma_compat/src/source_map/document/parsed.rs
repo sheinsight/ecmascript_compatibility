@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf, sync::OnceLock};
 
 use serde::Deserialize;
 use sourcemap::{SourceMap, Token};
@@ -16,6 +16,7 @@ use crate::source_map::{
 #[derive(Debug, Clone)]
 pub struct SourceMapDocument {
   inner: SourceMap,
+  source_ids_by_identity: OnceLock<HashMap<SourceIdentity, u32>>,
 }
 
 impl SourceMapDocument {
@@ -24,7 +25,10 @@ impl SourceMapDocument {
 
     let inner = SourceMap::from_slice(bytes)?;
 
-    Ok(Self { inner })
+    Ok(Self {
+      inner,
+      source_ids_by_identity: OnceLock::new(),
+    })
   }
 
   pub fn lookup(&self, generated: SourcePosition) -> Option<SourceLocation> {
@@ -56,15 +60,9 @@ impl SourceMapDocument {
   }
 
   pub fn source_contents(&self, source: &SourceIdentity) -> Option<&str> {
-    (0..self.inner.get_source_count()).find_map(|source_id| {
-      let candidate = source_identity(self.inner.get_source(source_id));
+    let source_id = *self.source_ids_by_identity().get(source)?;
 
-      if &candidate == source {
-        self.inner.get_source_contents(source_id)
-      } else {
-        None
-      }
-    })
+    self.inner.get_source_contents(source_id)
   }
 
   fn lookup_mapped_token(
@@ -78,6 +76,25 @@ impl SourceMapDocument {
     }
 
     Some(MappedToken::from_token(&token))
+  }
+
+  fn source_ids_by_identity(&self) -> &HashMap<SourceIdentity, u32> {
+    self
+      .source_ids_by_identity
+      .get_or_init(|| self.build_source_ids_by_identity())
+  }
+
+  fn build_source_ids_by_identity(&self) -> HashMap<SourceIdentity, u32> {
+    let source_count = self.inner.get_source_count();
+    let mut source_ids = HashMap::with_capacity(source_count as usize);
+
+    for source_id in 0..source_count {
+      let identity = source_identity(self.inner.get_source(source_id));
+
+      source_ids.entry(identity).or_insert(source_id);
+    }
+
+    source_ids
   }
 }
 
@@ -222,6 +239,44 @@ mod tests {
     .unwrap();
 
     assert_eq!(document.lookup(SourcePosition::new(0, 0)), None);
+  }
+
+  #[test]
+  fn looks_up_source_contents_by_source_identity() {
+    let document = SourceMapDocument::parse(
+      br#"{
+        "version":3,
+        "sources":["src/a.js","src/b.js"],
+        "sourcesContent":["const a = 1;","const b = 2;"],
+        "names":[],
+        "mappings":"AAAA"
+      }"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+      document.source_contents(&SourceIdentity::file("src/b.js")),
+      Some("const b = 2;"),
+    );
+  }
+
+  #[test]
+  fn source_contents_preserves_first_match_for_duplicate_identities() {
+    let document = SourceMapDocument::parse(
+      br#"{
+        "version":3,
+        "sources":["src/index.js","src/index.js"],
+        "sourcesContent":["first","second"],
+        "names":[],
+        "mappings":"AAAA"
+      }"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+      document.source_contents(&SourceIdentity::file("src/index.js")),
+      Some("first"),
+    );
   }
 
   #[test]
