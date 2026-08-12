@@ -30,7 +30,7 @@
     "test": "node --test test/*.test.js",
     "create-npm-dirs": "napi create-npm-dirs",
 		"artifacts": "napi artifacts",
-    "build:js": "napi build --platform --js index.js --dts index.d.ts",
+    "build:js": "napi build --platform",
 		"build": "napi build --platform --release",
 		"build:debug": "napi build --platform",
     "prepack": "clean-pkg-json",
@@ -40,7 +40,8 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "3.4.1",
-    "clean-pkg-json": "^2.0.0"
+    "clean-pkg-json": "^2.0.0",
+    "globby": "16.2.3"
   },
   "license": "MIT"
 }

@@ -7,10 +7,10 @@ This package detects syntax features that still exist in your source or build ou
 ## Usage
 
 ```js
-const { checkFiles } = require("@shined/ecma-compat");
+const { checkFileList } = require("@shined/ecma-compat");
 
-const report = checkFiles(
-  ["src/**/*.{js,jsx}", "dist/**/*.mjs"],
+const report = await checkFileList(
+  ["dist/app.js", "dist/chunk.js"],
   ["chrome 60", "safari 13"],
   {
     cwd: process.cwd(),
@@ -24,35 +24,33 @@ console.log(report.counts.diagnostics);
 ## API
 
 ```ts
-checkFiles(
-  patterns: string[],
+checkFileList(
+  files: string[],
   targets: string[],
-  options?: CheckFilesOptions | null,
-): CompatFilesReport
+  options?: CheckFileListOptions | null,
+): Promise<CompatFilesReport>
 ```
 
-`patterns` is a required include glob list resolved relative to `options.cwd`.
+`files` is the explicit file list to analyze. File discovery, globbing, and ignore rules belong to the caller.
 
 ```ts
-interface CheckFilesOptions {
+interface CheckFileListOptions {
   cwd?: string;
-  extensions?: string[];
-  respectGitignore?: boolean;
-  ignoreHidden?: boolean;
   parallelism?: number;
-  excludeEmptyReports?: boolean;
-  includeSupportedTargets?: boolean;
+  includeEmptyReports?: boolean;
+  sourceMap?: "auto" | "always" | "off";
+  targetStatus?: "problems" | "all";
 }
 ```
 
-- `cwd` defaults to the current process working directory.
-- `extensions` defaults to `["js", "mjs", "cjs", "jsx"]`.
-- `respectGitignore` defaults to `false`.
-- `ignoreHidden` defaults to `false`.
+- `cwd` is optional report metadata used for relative path display.
+- `files` may be absolute paths or paths relative to the current process working directory.
 - `parallelism` limits the Rayon worker count used by the analysis stage.
-- `excludeEmptyReports` defaults to `true`.
+- `includeEmptyReports` defaults to `false`.
+- `sourceMap` defaults to `"auto"` for `checkFileList` and `"always"` for `checkFile`.
+- `targetStatus` defaults to `"problems"`.
 
-The package also exports `checkFile(path, targets, options)` for analyzing a single file.
+The package also exports `checkFile(path, targets, options)` for analyzing a single file. Both APIs return promises.
 
 ## Scope
 

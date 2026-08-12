@@ -78,18 +78,18 @@ for diagnostic in report.diagnostics() {
 
 ## Node.js 文件分析
 
-napi binding 提供 `checkFiles(patterns, targets, options)`，会在 `cwd` 下按 glob patterns 发现 JavaScript 文件并返回文件集合报告。
+napi binding 提供 `checkFileList(files, targets, options)`，调用方负责用自己的 glob、构建系统或文件遍历逻辑产出文件列表，binding 只负责分析这些明确文件路径并返回文件集合报告。
 
 ```js
-const { checkFiles } = require("@shined/ecmascript-compatibility");
+const { checkFileList } = require("@shined/ecma-compat");
 
-const report = checkFiles(["assets/**/*.js", "chunks/**/*.mjs"], ["chrome 60"], {
+const report = await checkFileList(["dist/statics/app.js", "dist/statics/chunk.js"], ["chrome 60"], {
   cwd: "dist/statics",
-  excludeEmptyReports: false,
+  includeEmptyReports: true,
 });
 ```
 
-`patterns` 是相对 `cwd` 的 include glob 列表。`cwd` 默认使用当前进程工作目录。`excludeEmptyReports` 默认为 `true`，只影响 JS 返回值：`reports` 中会过滤掉 `diagnostics.length === 0` 的文件报告，`errors` 仍会保留。需要全量文件报告时传 `excludeEmptyReports: false`。
+`files` 是要分析的明确文件路径列表。相对路径会按当前进程工作目录解析；`cwd` 只用于报告展示和相对路径标签，不参与文件发现。binding 不读取 `.gitignore`，也不会隐式跳过 hidden 文件。`includeEmptyReports` 默认为 `false`，只影响 JS 返回值：`reports` 中会过滤掉 `diagnostics.length === 0` 的文件报告，`errors` 仍会保留。需要全量文件报告时传 `includeEmptyReports: true`。
 
 ## 分析内存中的内容
 

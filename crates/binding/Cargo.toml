@@ -13,9 +13,6 @@ napi = { workspace = true }
 napi-derive = { workspace = true }
 rayon = { workspace = true }
 path-slash = { workspace = true }
-globset = { workspace = true }
-ignore = { workspace = true }
-thiserror = { workspace = true }
 
 [build-dependencies]
 napi-build = { workspace = true }

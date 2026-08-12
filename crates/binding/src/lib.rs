@@ -1,5 +1,4 @@
 use std::{
-  env,
   path::{Path, PathBuf},
   time::{Duration, Instant},
 };
@@ -17,30 +16,27 @@ use ecma_compat::{
     SourceMapping as RustSourceMapping, SourcePosition as RustSourcePosition,
   },
 };
-use napi::bindgen_prelude::*;
+use napi::{Task, bindgen_prelude::*};
 use napi_derive::napi;
 use rayon::prelude::*;
 
-mod file_discovery;
-
-use file_discovery::{FileDiscoveryOptions, discover_files, normalize_cwd};
-
 #[napi(object)]
-pub struct CheckFilesOptions {
-  pub include_supported_targets: Option<bool>,
+pub struct CheckFileListOptions {
   pub cwd: Option<String>,
-  pub extensions: Option<Vec<String>>,
-  pub respect_gitignore: Option<bool>,
-  pub ignore_hidden: Option<bool>,
   pub parallelism: Option<u32>,
-  pub exclude_empty_reports: Option<bool>,
-  pub source_map_policy: Option<String>,
+  pub include_empty_reports: Option<bool>,
+  #[napi(ts_type = "'auto' | 'always' | 'off'")]
+  pub source_map: Option<String>,
+  #[napi(ts_type = "'problems' | 'all'")]
+  pub target_status: Option<String>,
 }
 
 #[napi(object)]
 pub struct CheckFileOptions {
-  pub include_supported_targets: Option<bool>,
-  pub source_map_policy: Option<String>,
+  #[napi(ts_type = "'auto' | 'always' | 'off'")]
+  pub source_map: Option<String>,
+  #[napi(ts_type = "'problems' | 'all'")]
+  pub target_status: Option<String>,
 }
 
 #[napi(object)]
@@ -137,73 +133,97 @@ pub struct TargetCompatStatus {
   pub status: String,
 }
 
-#[napi(js_name = "checkFiles")]
-pub fn check_files(
-  patterns: Vec<String>,
+#[napi(ts_return_type = "Promise<CompatFilesReport>")]
+pub fn check_file_list(
+  files: Vec<String>,
   targets: Vec<String>,
-  options: Option<CheckFilesOptions>,
-) -> Result<CompatFilesReport> {
-  let elapsed_started_at = Instant::now();
-  let cwd = options
+  options: Option<CheckFileListOptions>,
+) -> Result<AsyncTask<CheckFileListTask>> {
+  let target_status = options
     .as_ref()
-    .and_then(|options| options.cwd.as_ref())
-    .map(PathBuf::from)
-    .map_or_else(env::current_dir, Ok)
-    .map_err(to_napi_error)?;
-  let cwd = normalize_cwd(cwd).map_err(to_napi_error)?;
-  let discovery_options = FileDiscoveryOptions::new(
-    &patterns,
-    options
-      .as_ref()
-      .and_then(|options| options.extensions.as_deref()),
-    options
-      .as_ref()
-      .and_then(|options| options.respect_gitignore)
-      .unwrap_or(false),
-    options
-      .as_ref()
-      .and_then(|options| options.ignore_hidden)
-      .unwrap_or(false),
-  );
-  let include_supported_targets = options
-    .as_ref()
-    .and_then(|options| options.include_supported_targets);
+    .and_then(|options| options.target_status.as_deref())
+    .map(parse_target_status)
+    .transpose()?
+    .unwrap_or(TargetStatusOutput::Problems);
   let source_map_policy = options
     .as_ref()
-    .and_then(|options| options.source_map_policy.as_deref())
-    .map(parse_source_map_policy)
+    .and_then(|options| options.source_map.as_deref())
+    .map(parse_source_map)
     .transpose()?
     .unwrap_or(SourceMapPolicy::DiagnosticsOnly);
   let parallelism = options.as_ref().and_then(|options| options.parallelism);
-  let exclude_empty_reports = options
+  let include_empty_reports = options
     .as_ref()
-    .and_then(|options| options.exclude_empty_reports)
-    .unwrap_or(true);
+    .and_then(|options| options.include_empty_reports)
+    .unwrap_or(false);
+  let cwd = options
+    .as_ref()
+    .and_then(|options| options.cwd.clone())
+    .unwrap_or_default();
 
-  check_files_with_analyzer(
-    &cwd,
-    &discovery_options,
-    &targets,
+  Ok(AsyncTask::new(CheckFileListTask {
+    files: files.into_iter().map(PathBuf::from).collect(),
+    targets,
+    cwd,
     parallelism,
-    exclude_empty_reports,
-    elapsed_started_at,
-    &analyzer_from_options(include_supported_targets, source_map_policy),
-  )
+    include_empty_reports,
+    target_status,
+    source_map_policy,
+  }))
 }
 
-fn check_files_with_analyzer<L>(
-  cwd: &Path,
-  discovery_options: &FileDiscoveryOptions,
+pub struct CheckFileListTask {
+  files: Vec<PathBuf>,
+  targets: Vec<String>,
+  cwd: String,
+  parallelism: Option<u32>,
+  include_empty_reports: bool,
+  target_status: TargetStatusOutput,
+  source_map_policy: SourceMapPolicy,
+}
+
+#[napi]
+impl Task for CheckFileListTask {
+  type Output = CompatFilesReport;
+  type JsValue = CompatFilesReport;
+
+  fn compute(&mut self) -> Result<Self::Output> {
+    let elapsed_started_at = Instant::now();
+    let analyzer =
+      analyzer_from_options(self.target_status, self.source_map_policy);
+
+    check_file_list_with_analyzer(
+      &self.cwd,
+      &self.files,
+      &self.targets,
+      self.parallelism,
+      self.include_empty_reports,
+      elapsed_started_at,
+      &analyzer,
+    )
+  }
+
+  fn resolve(
+    &mut self,
+    _env: napi::Env,
+    report: Self::Output,
+  ) -> Result<Self::JsValue> {
+    Ok(report)
+  }
+}
+
+fn check_file_list_with_analyzer<L>(
+  cwd: &str,
+  files: &[PathBuf],
   targets: &[String],
   parallelism: Option<u32>,
-  exclude_empty_reports: bool,
+  include_empty_reports: bool,
   elapsed_started_at: Instant,
   analyzer: &CompatAnalyzer<L>,
 ) -> Result<CompatFilesReport>
 where
   L: SourceMapLoader + Sync,
 {
-  let files = discover_files(cwd, discovery_options).map_err(to_napi_error)?;
   let resolved_targets = analyzer
     .resolve_targets(targets.iter().map(String::as_str))
     .map_err(to_napi_error)?;
@@ -213,11 +233,10 @@ where
       .build()
       .map_err(to_napi_error)?;
 
-    pool.install(|| {
-      analyze_files_in_parallel(&files, &resolved_targets, analyzer)
-    })
+    pool
+      .install(|| analyze_files_in_parallel(files, &resolved_targets, analyzer))
   } else {
-    analyze_files_in_parallel(&files, &resolved_targets, analyzer)
+    analyze_files_in_parallel(files, &resolved_targets, analyzer)
   };
 
   let mut analyzed_reports = Vec::new();
@@ -245,14 +264,14 @@ where
   let reported_reports = analyzed_reports
     .into_iter()
     .filter(|entry| {
-      !exclude_empty_reports || !entry.report.diagnostics.is_empty()
+      include_empty_reports || !entry.report.diagnostics.is_empty()
     })
     .map(|entry| entry.report)
     .collect::<Vec<_>>();
   let reported_files = reported_reports.len() as u32;
 
   Ok(CompatFilesReport {
-    cwd: path_label(cwd),
+    cwd: cwd.to_string(),
     targets: resolved_targets.iter().copied().map(Into::into).collect(),
     counts: CompatFilesCounts {
       matched_files,
@@ -296,41 +315,89 @@ enum FileAnalysisEntry {
   Error(CompatFileError),
 }
 
-#[napi(js_name = "checkFile")]
+#[napi(ts_return_type = "Promise<CompatFileReport>")]
 pub fn check_file(
   path: String,
   targets: Vec<String>,
   options: Option<CheckFileOptions>,
-) -> Result<CompatFileReport> {
-  let include_supported_targets = options
+) -> Result<AsyncTask<CheckFileTask>> {
+  let target_status = options
     .as_ref()
-    .and_then(|options| options.include_supported_targets);
+    .and_then(|options| options.target_status.as_deref())
+    .map(parse_target_status)
+    .transpose()?
+    .unwrap_or(TargetStatusOutput::Problems);
   let source_map_policy = options
     .as_ref()
-    .and_then(|options| options.source_map_policy.as_deref())
-    .map(parse_source_map_policy)
+    .and_then(|options| options.source_map.as_deref())
+    .map(parse_source_map)
     .transpose()?
     .unwrap_or(SourceMapPolicy::Always);
 
-  let analyzer =
-    analyzer_from_options(include_supported_targets, source_map_policy);
-  let resolved_targets = analyzer
-    .resolve_targets(targets.iter().map(String::as_str))
-    .map_err(to_napi_error)?;
+  Ok(AsyncTask::new(CheckFileTask {
+    path: PathBuf::from(path),
+    targets,
+    target_status,
+    source_map_policy,
+  }))
+}
 
-  analyzer
-    .analyze_path(path, &resolved_targets)
-    .map(CompatFileReport::from_report)
-    .map_err(to_napi_error)
+pub struct CheckFileTask {
+  path: PathBuf,
+  targets: Vec<String>,
+  target_status: TargetStatusOutput,
+  source_map_policy: SourceMapPolicy,
+}
+
+#[napi]
+impl Task for CheckFileTask {
+  type Output = CompatFileReport;
+  type JsValue = CompatFileReport;
+
+  fn compute(&mut self) -> Result<Self::Output> {
+    let analyzer =
+      analyzer_from_options(self.target_status, self.source_map_policy);
+    let resolved_targets = analyzer
+      .resolve_targets(self.targets.iter().map(String::as_str))
+      .map_err(to_napi_error)?;
+
+    analyzer
+      .analyze_path(&self.path, &resolved_targets)
+      .map(CompatFileReport::from_report)
+      .map_err(to_napi_error)
+  }
+
+  fn resolve(
+    &mut self,
+    _env: napi::Env,
+    report: Self::Output,
+  ) -> Result<Self::JsValue> {
+    Ok(report)
+  }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TargetStatusOutput {
+  Problems,
+  All,
+}
+
+impl TargetStatusOutput {
+  const fn include_supported_targets(self) -> bool {
+    match self {
+      Self::Problems => false,
+      Self::All => true,
+    }
+  }
 }
 
 fn analyzer_from_options(
-  include_supported_targets: Option<bool>,
+  target_status: TargetStatusOutput,
   source_map_policy: SourceMapPolicy,
 ) -> CompatAnalyzer {
   CompatAnalyzer::builder()
     .source_map_policy(source_map_policy)
-    .include_supported_targets(include_supported_targets.unwrap_or(false))
+    .include_supported_targets(target_status.include_supported_targets())
     .build()
 }
 
@@ -607,16 +674,27 @@ fn status_label(status: CompatStatus) -> &'static str {
   }
 }
 
-fn parse_source_map_policy(value: &str) -> Result<SourceMapPolicy> {
+fn parse_source_map(value: &str) -> Result<SourceMapPolicy> {
   match value {
+    "auto" => Ok(SourceMapPolicy::DiagnosticsOnly),
     "always" => Ok(SourceMapPolicy::Always),
-    "diagnosticsOnly" => Ok(SourceMapPolicy::DiagnosticsOnly),
-    "disabled" => Ok(SourceMapPolicy::Disabled),
+    "off" => Ok(SourceMapPolicy::Disabled),
     _ => Err(Error::new(
       Status::InvalidArg,
       format!(
-        "invalid sourceMapPolicy `{value}`; expected `always`, `diagnosticsOnly`, or `disabled`"
+        "invalid sourceMap `{value}`; expected `auto`, `always`, or `off`"
       ),
+    )),
+  }
+}
+
+fn parse_target_status(value: &str) -> Result<TargetStatusOutput> {
+  match value {
+    "problems" => Ok(TargetStatusOutput::Problems),
+    "all" => Ok(TargetStatusOutput::All),
+    _ => Err(Error::new(
+      Status::InvalidArg,
+      format!("invalid targetStatus `{value}`; expected `problems` or `all`"),
     )),
   }
 }

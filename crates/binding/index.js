@@ -573,4 +573,4 @@ if (!nativeBinding) {
 
 module.exports = nativeBinding
 module.exports.checkFile = nativeBinding.checkFile
-module.exports.checkFiles = nativeBinding.checkFiles
+module.exports.checkFileList = nativeBinding.checkFileList
